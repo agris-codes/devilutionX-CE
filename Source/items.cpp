@@ -4500,7 +4500,7 @@ void SpawnBoy(int lvl)
 		items[0]._iSeed = AdvanceRndSeed();
 		int itype = RndBoyItem(lvl) - 1;
 		GetItemAttrs(0, itype, lvl);
-		GetItemBonus(0, lvl / 4, 2 * lvl, true, true); // increase min from lvl to lvl / 4
+		GetItemBonus(0, lvl * 2 / 5, 2 * lvl, true, true); // decrease min from lvl to lvl * (2/5)
 
 		if (!gbIsHellfire) {
 			if (items[0]._iIvalue > 90000) {
@@ -4578,11 +4578,12 @@ void SpawnBoy(int lvl)
 		}*/
 	} while (keepgoing
 	    || ((
-	            items[0]._iIvalue > 300000 // increased from 300k
+				items[0]._iIvalue > 300000 // increased from 200k
 	            /*|| items[0]._iMinStr > strength
 	            || items[0]._iMinMag > magic
 	            || items[0]._iMinDex > dexterity
 	            || items[0]._iIvalue < ivalue)*/
+	            || items[0]._iIvalue < (1000 + (lvl * 200)) // avoid vendor trash
 	        && count < 250)));
 	boyitem = items[0];
 	boyitem._iCreateInfo = lvl | CF_BOY;
