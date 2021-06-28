@@ -4500,7 +4500,7 @@ void SpawnBoy(int lvl)
 		items[0]._iSeed = AdvanceRndSeed();
 		int itype = RndBoyItem(lvl) - 1;
 		GetItemAttrs(0, itype, lvl);
-		GetItemBonus(0, lvl / 4, 2 * lvl, true, true); // changed minimum from "lvl" to "lvl / 4" 
+		GetItemBonus(0, lvl, 2 * lvl, true, true);
 
 		if (!gbIsHellfire) {
 			if (items[0]._iIvalue > 90000) {
@@ -4514,75 +4514,75 @@ void SpawnBoy(int lvl)
 
 		int itemType = items[0]._itype;
 
-		//switch (itemType) {
-		//case ITYPE_LARMOR:
-		//case ITYPE_MARMOR:
-		//case ITYPE_HARMOR: {
-		//	const auto *const mostValuablePlayerArmor = myPlayer.GetMostValuableItem(
-		//	    [](const ItemStruct &item) {
-		//		    return item._itype == ITYPE_LARMOR
-		//		        || item._itype == ITYPE_MARMOR
-		//		        || item._itype == ITYPE_HARMOR;
-		//	    });
+		switch (itemType) {
+		case ITYPE_LARMOR:
+		case ITYPE_MARMOR:
+		case ITYPE_HARMOR: {
+			const auto *const mostValuablePlayerArmor = myPlayer.GetMostValuableItem(
+			    [](const ItemStruct &item) {
+				    return item._itype == ITYPE_LARMOR
+				        || item._itype == ITYPE_MARMOR
+				        || item._itype == ITYPE_HARMOR;
+			    });
 
-		//	ivalue = mostValuablePlayerArmor == nullptr ? 0 : mostValuablePlayerArmor->_iIvalue;
-		//	break;
-		//}
-		//case ITYPE_SHIELD:
-		//case ITYPE_AXE:
-		//case ITYPE_BOW:
-		//case ITYPE_MACE:
-		//case ITYPE_SWORD:
-		//case ITYPE_HELM:
-		//case ITYPE_STAFF:
-		//case ITYPE_RING:
-		//case ITYPE_AMULET: {
-		//	const auto *const mostValuablePlayerItem = myPlayer.GetMostValuableItem(
-		//	    [itemType](const ItemStruct &item) { return item._itype == itemType; });
+			ivalue = mostValuablePlayerArmor == nullptr ? 0 : mostValuablePlayerArmor->_iIvalue;
+			break;
+		}
+		case ITYPE_SHIELD:
+		case ITYPE_AXE:
+		case ITYPE_BOW:
+		case ITYPE_MACE:
+		case ITYPE_SWORD:
+		case ITYPE_HELM:
+		case ITYPE_STAFF:
+		case ITYPE_RING:
+		case ITYPE_AMULET: {
+			const auto *const mostValuablePlayerItem = myPlayer.GetMostValuableItem(
+			    [itemType](const ItemStruct &item) { return item._itype == itemType; });
 
-		//	ivalue = mostValuablePlayerItem == nullptr ? 0 : mostValuablePlayerItem->_iIvalue;
-		//	break;
-		//}
-		//}
-		//ivalue *= 0.8;
+			ivalue = mostValuablePlayerItem == nullptr ? 0 : mostValuablePlayerItem->_iIvalue;
+			break;
+		}
+		}
+		ivalue *= 0.8;
 
 		count++;
 
-		//if (count < 200) {
-		//	switch (pc) {
-		//	case HeroClass::Warrior:
-		//		if (itemType == ITYPE_BOW || itemType == ITYPE_STAFF)
-		//			ivalue = INT_MAX;
-		//		break;
-		//	case HeroClass::Rogue:
-		//		if (itemType == ITYPE_SWORD || itemType == ITYPE_STAFF || itemType == ITYPE_AXE || itemType == ITYPE_MACE || itemType == ITYPE_SHIELD)
-		//			ivalue = INT_MAX;
-		//		break;
-		//	case HeroClass::Sorcerer:
-		//		if (itemType == ITYPE_STAFF || itemType == ITYPE_AXE || itemType == ITYPE_BOW || itemType == ITYPE_MACE)
-		//			ivalue = INT_MAX;
-		//		break;
-		//	case HeroClass::Monk:
-		//		if (itemType == ITYPE_BOW || itemType == ITYPE_MARMOR || itemType == ITYPE_SHIELD || itemType == ITYPE_MACE)
-		//			ivalue = INT_MAX;
-		//		break;
-		//	case HeroClass::Bard:
-		//		if (itemType == ITYPE_AXE || itemType == ITYPE_MACE || itemType == ITYPE_STAFF)
-		//			ivalue = INT_MAX;
-		//		break;
-		//	case HeroClass::Barbarian:
-		//		if (itemType == ITYPE_BOW || itemType == ITYPE_STAFF)
-		//			ivalue = INT_MAX;
-		//		break;
-		//	}
-		//}
+		if (count < 200) {
+			switch (pc) {
+			case HeroClass::Warrior:
+				if (itemType == ITYPE_BOW || itemType == ITYPE_STAFF)
+					ivalue = INT_MAX;
+				break;
+			case HeroClass::Rogue:
+				if (itemType == ITYPE_SWORD || itemType == ITYPE_STAFF || itemType == ITYPE_AXE || itemType == ITYPE_MACE || itemType == ITYPE_SHIELD)
+					ivalue = INT_MAX;
+				break;
+			case HeroClass::Sorcerer:
+				if (itemType == ITYPE_STAFF || itemType == ITYPE_AXE || itemType == ITYPE_BOW || itemType == ITYPE_MACE)
+					ivalue = INT_MAX;
+				break;
+			case HeroClass::Monk:
+				if (itemType == ITYPE_BOW || itemType == ITYPE_MARMOR || itemType == ITYPE_SHIELD || itemType == ITYPE_MACE)
+					ivalue = INT_MAX;
+				break;
+			case HeroClass::Bard:
+				if (itemType == ITYPE_AXE || itemType == ITYPE_MACE || itemType == ITYPE_STAFF)
+					ivalue = INT_MAX;
+				break;
+			case HeroClass::Barbarian:
+				if (itemType == ITYPE_BOW || itemType == ITYPE_STAFF)
+					ivalue = INT_MAX;
+				break;
+			}
+		}
 	} while (keepgoing
 	    || ((
-	            items[0]._iIvalue > 300000 // changed from 200k
-	            //|| items[0]._iMinStr > strength
-	            //|| items[0]._iMinMag > magic
-	            //|| items[0]._iMinDex > dexterity
-	            //|| items[0]._iIvalue < ivalue)
+	            items[0]._iIvalue > 200000
+	            || items[0]._iMinStr > strength
+	            || items[0]._iMinMag > magic
+	            || items[0]._iMinDex > dexterity
+	            || items[0]._iIvalue < ivalue)
 	        && count < 250));
 	boyitem = items[0];
 	boyitem._iCreateInfo = lvl | CF_BOY;
