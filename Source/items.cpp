@@ -4500,7 +4500,7 @@ void SpawnBoy(int lvl)
 		items[0]._iSeed = AdvanceRndSeed();
 		int itype = RndBoyItem(lvl) - 1;
 		GetItemAttrs(0, itype, lvl);
-		GetItemBonus(0, lvl * 2 / 5, 2 * lvl, true, true); // decrease min from lvl to lvl * (2/5)
+		GetItemBonus(0, lvl / 2, 2 * lvl, true, true); // decrease min from lvl to lvl/2
 
 		if (!gbIsHellfire) {
 			if (items[0]._iIvalue > 90000) {
@@ -4510,11 +4510,11 @@ void SpawnBoy(int lvl)
 			break;
 		}
 
-		//ivalue = 0;
+		ivalue = 0;
 
 		int itemType = items[0]._itype;
 
-		/*switch (itemType) {
+		switch (itemType) {
 		case ITYPE_LARMOR:
 		case ITYPE_MARMOR:
 		case ITYPE_HARMOR: {
@@ -4544,11 +4544,11 @@ void SpawnBoy(int lvl)
 			break;
 		}
 		}
-		ivalue *= 0.8;*/
+		ivalue *= 0.8;
 
 		count++;
 
-		/*if (count < 200) {
+		if (count < 200) {
 			switch (pc) {
 			case HeroClass::Warrior:
 				if (itemType == ITYPE_BOW || itemType == ITYPE_STAFF)
@@ -4575,16 +4575,16 @@ void SpawnBoy(int lvl)
 					ivalue = INT_MAX;
 				break;
 			}
-		}*/
+		}
 	} while (keepgoing
 	    || ((
-				items[0]._iIvalue > 300000 // increased from 200k
-	            /*|| items[0]._iMinStr > strength
+				items[0]._iIvalue > 500000 // increased from 200k
+		        || items[0]._iIvalue < (1000 + (lvl * 200)) // avoid vendor trash
+	            || items[0]._iMinStr > strength
 	            || items[0]._iMinMag > magic
 	            || items[0]._iMinDex > dexterity
-	            || items[0]._iIvalue < ivalue)*/
-	            || items[0]._iIvalue < (1000 + (lvl * 200)) // avoid vendor trash
-	        && count < 250)));
+	            || items[0]._iIvalue < ivalue)
+	        && count < 250));
 	boyitem = items[0];
 	boyitem._iCreateInfo = lvl | CF_BOY;
 	boyitem._iIdentified = true;
