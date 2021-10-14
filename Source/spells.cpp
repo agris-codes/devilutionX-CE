@@ -7,6 +7,9 @@
 
 #include "control.h"
 #include "cursor.h"
+#ifdef _DEBUG
+#include "debug.h"
+#endif
 #include "engine/point.hpp"
 #include "engine/random.hpp"
 #include "gamemenu.h"
@@ -15,85 +18,7 @@
 
 namespace devilution {
 
-int GetManaAmount(PlayerStruct &player, spell_id sn)
-{
-	int ma; // mana amount
-
-	// mana adjust
-	int adj = 0;
-
-	// spell level
-	int sl = player._pSplLvl[sn] + player._pISplLvlAdd - 1;
-
-	if (sl < 0) {
-		sl = 0;
-	}
-
-	if (sl > 0) {
-		adj = sl * spelldata[sn].sManaAdj;
-	}
-	if (sn == SPL_FIREBOLT) {
-		adj /= 2;
-	}
-	if (sn == SPL_RESURRECT && sl > 0) {
-		adj = sl * (spelldata[SPL_RESURRECT].sManaCost / 8);
-	}
-
-	if (sn == SPL_HEAL || sn == SPL_HEALOTHER) {
-		ma = (spelldata[SPL_HEAL].sManaCost + 2 * player._pLevel - adj);
-	} else if (spelldata[sn].sManaCost == 255) {
-		ma = ((BYTE)player._pMaxManaBase - adj);
-	} else {
-		ma = (spelldata[sn].sManaCost - adj);
-	}
-
-	if (ma < 0)
-		ma = 0;
-	ma <<= 6;
-
-	if (gbIsHellfire && player._pClass == HeroClass::Sorcerer) {
-		ma /= 2;
-	} else if (player._pClass == HeroClass::Rogue || player._pClass == HeroClass::Monk || player._pClass == HeroClass::Bard) {
-		ma -= ma / 4;
-	}
-
-	if (spelldata[sn].sMinMana > ma >> 6) {
-		ma = spelldata[sn].sMinMana << 6;
-	}
-
-	return ma;
-}
-
-void UseMana(int id, spell_id sn)
-{
-	int ma; // mana cost
-
-	if (id == myplr) {
-		switch (plr[id]._pSplType) {
-		case RSPLTYPE_SKILL:
-		case RSPLTYPE_INVALID:
-			break;
-		case RSPLTYPE_SCROLL:
-			RemoveScroll(plr[id]);
-			break;
-		case RSPLTYPE_CHARGES:
-			UseStaffCharge(plr[id]);
-			break;
-		case RSPLTYPE_SPELL:
-#ifdef _DEBUG
-			if (!debug_mode_key_inverted_v) {
-#endif
-				ma = GetManaAmount(plr[id], sn);
-				plr[id]._pMana -= ma;
-				plr[id]._pManaBase -= ma;
-				drawmanaflag = true;
-#ifdef _DEBUG
-			}
-#endif
-			break;
-		}
-	}
-}
+namespace {
 
 /**
  * @brief Gets a value indicating whether the player's current readied spell is a valid spell. Readied spells can be
@@ -102,7 +27,7 @@ void UseMana(int id, spell_id sn)
  * @param player The player whose readied spell is to be checked.
  * @return 'true' when the readied spell is currently valid, and 'false' otherwise.
  */
-bool IsReadiedSpellValid(const PlayerStruct &player)
+bool IsReadiedSpellValid(const Player &player)
 {
 	switch (player._pRSplType) {
 	case RSPLTYPE_SKILL:
@@ -126,7 +51,7 @@ bool IsReadiedSpellValid(const PlayerStruct &player)
  * @note Will force a UI redraw in case the values actually change, so that the new spell reflects on the bottom panel.
  * @param player The player whose readied spell is to be cleared.
  */
-void ClearReadiedSpell(PlayerStruct &player)
+void ClearReadiedSpell(Player &player)
 {
 	if (player._pRSpell != SPL_INVALID) {
 		player._pRSpell = SPL_INVALID;
@@ -139,49 +64,165 @@ void ClearReadiedSpell(PlayerStruct &player)
 	}
 }
 
-/**
- * @brief Ensures the player's current readied spell is a valid selection for the character. If the current selection is
- * incompatible with the player's items and spell (for example, if the player does not currently have access to the spell),
- * the selection is cleared.
- * @note Will force a UI redraw in case the values actually change, so that the new spell reflects on the bottom panel.
- * @param player The player whose readied spell is to be checked.
- */
-void EnsureValidReadiedSpell(PlayerStruct &player)
+void PlacePlayer(int pnum)
+{
+	auto &player = Players[pnum];
+	Point newPosition = {};
+
+	if (player.plrlevel == currlevel) {
+		for (int i = 0; i < 8; i++) {
+			newPosition = player.position.tile + Displacement { plrxoff2[i], plryoff2[i] };
+			if (PosOkPlayer(player, newPosition)) {
+				break;
+			}
+		}
+
+		if (!PosOkPlayer(player, newPosition)) {
+			bool done = false;
+
+			int min = -1;
+			for (int max = 1; min > -50 && !done; max++, min--) {
+				for (int y = min; y <= max && !done; y++) {
+					newPosition.y = player.position.tile.y + y;
+
+					for (int x = min; x <= max && !done; x++) {
+						newPosition.x = player.position.tile.x + x;
+
+						if (PosOkPlayer(player, newPosition)) {
+							done = true;
+						}
+					}
+				}
+			}
+		}
+
+		player.position.tile = newPosition;
+
+		dPlayer[newPosition.x][newPosition.y] = pnum + 1;
+
+		if (pnum == MyPlayerId) {
+			ViewPosition = newPosition;
+		}
+	}
+}
+
+} // namespace
+
+int GetManaAmount(Player &player, spell_id sn)
+{
+	int ma; // mana amount
+
+	// mana adjust
+	int adj = 0;
+
+	// spell level
+	int sl = std::max(player._pSplLvl[sn] + player._pISplLvlAdd - 1, 0);
+
+	if (sl > 0) {
+		adj = sl * spelldata[sn].sManaAdj;
+	}
+	if (sn == SPL_FIREBOLT) {
+		adj /= 2;
+	}
+	if (sn == SPL_RESURRECT && sl > 0) {
+		adj = sl * (spelldata[SPL_RESURRECT].sManaCost / 8);
+	}
+
+	if (sn == SPL_HEAL || sn == SPL_HEALOTHER) {
+		ma = (spelldata[SPL_HEAL].sManaCost + 2 * player._pLevel - adj);
+	} else if (spelldata[sn].sManaCost == 255) {
+		ma = ((BYTE)player._pMaxManaBase - adj);
+	} else {
+		ma = (spelldata[sn].sManaCost - adj);
+	}
+
+	ma = std::max(ma, 0);
+	ma <<= 6;
+
+	if (gbIsHellfire && player._pClass == HeroClass::Sorcerer) {
+		ma /= 2;
+	} else if (player._pClass == HeroClass::Rogue || player._pClass == HeroClass::Monk || player._pClass == HeroClass::Bard) {
+		ma -= ma / 4;
+	}
+
+	if (spelldata[sn].sMinMana > ma >> 6) {
+		ma = spelldata[sn].sMinMana << 6;
+	}
+
+	return ma;
+}
+
+void UseMana(int id, spell_id sn)
+{
+	int ma; // mana cost
+
+	if (id != MyPlayerId)
+		return;
+
+	auto &myPlayer = Players[MyPlayerId];
+
+	switch (myPlayer._pSplType) {
+	case RSPLTYPE_SKILL:
+	case RSPLTYPE_INVALID:
+		break;
+	case RSPLTYPE_SCROLL:
+		RemoveScroll(myPlayer);
+		break;
+	case RSPLTYPE_CHARGES:
+		UseStaffCharge(myPlayer);
+		break;
+	case RSPLTYPE_SPELL:
+#ifdef _DEBUG
+		if (DebugGodMode)
+			break;
+#endif
+		ma = GetManaAmount(myPlayer, sn);
+		myPlayer._pMana -= ma;
+		myPlayer._pManaBase -= ma;
+		drawmanaflag = true;
+		break;
+	}
+}
+
+void EnsureValidReadiedSpell(Player &player)
 {
 	if (!IsReadiedSpellValid(player)) {
 		ClearReadiedSpell(player);
 	}
 }
 
-bool CheckSpell(int id, spell_id sn, spell_type st, bool manaonly)
+SpellCheckResult CheckSpell(int id, spell_id sn, spell_type st, bool manaonly)
 {
 #ifdef _DEBUG
-	if (debug_mode_key_inverted_v)
-		return true;
+	if (DebugGodMode)
+		return SpellCheckResult::Success;
 #endif
 
 	if (!manaonly && pcurs != CURSOR_HAND) {
-		return false;
+		return SpellCheckResult::Fail_Busy;
 	}
 
 	if (st == RSPLTYPE_SKILL) {
-		return true;
+		return SpellCheckResult::Success;
 	}
 
 	if (GetSpellLevel(id, sn) <= 0) {
-		return false;
+		return SpellCheckResult::Fail_Level0;
 	}
 
-	auto &player = plr[id];
+	auto &player = Players[id];
+	if (player._pMana < GetManaAmount(player, sn)) {
+		return SpellCheckResult::Fail_NoMana;
+	}
 
-	return player._pMana >= GetManaAmount(player, sn);
+	return SpellCheckResult::Success;
 }
 
 void CastSpell(int id, int spl, int sx, int sy, int dx, int dy, int spllvl)
 {
-	Direction dir = plr[id]._pdir;
+	Direction dir = Players[id]._pdir;
 	if (spl == SPL_FIREWALL || spl == SPL_LIGHTWALL) {
-		dir = plr[id].tempDirection;
+		dir = Players[id].tempDirection;
 	}
 
 	for (int i = 0; spelldata[spl].sMissiles[i] != MIS_NULL && i < 3; i++) {
@@ -199,108 +240,65 @@ void CastSpell(int id, int spl, int sx, int sy, int dx, int dy, int spllvl)
 	}
 }
 
-static void PlacePlayer(int pnum)
+void DoResurrect(int pnum, uint16_t rid)
 {
-	Point newPosition = {};
-
-	if (plr[pnum].plrlevel == currlevel) {
-		for (int i = 0; i < 8; i++) {
-			newPosition = plr[pnum].position.tile + Point { plrxoff2[i], plryoff2[i] };
-			if (PosOkPlayer(pnum, newPosition)) {
-				break;
-			}
-		}
-
-		if (!PosOkPlayer(pnum, newPosition)) {
-			bool done = false;
-
-			int min = -1;
-			for (int max = 1; min > -50 && !done; max++, min--) {
-				for (int y = min; y <= max && !done; y++) {
-					newPosition.y = plr[pnum].position.tile.y + y;
-
-					for (int x = min; x <= max && !done; x++) {
-						newPosition.x = plr[pnum].position.tile.x + x;
-
-						if (PosOkPlayer(pnum, newPosition)) {
-							done = true;
-						}
-					}
-				}
-			}
-		}
-
-		plr[pnum].position.tile = newPosition;
-
-		dPlayer[newPosition.x][newPosition.y] = pnum + 1;
-
-		if (pnum == myplr) {
-			ViewX = newPosition.x;
-			ViewY = newPosition.y;
-		}
-	}
-}
-
-/**
- * @param pnum player index
- * @param rid target player index
- */
-void DoResurrect(int pnum, int rid)
-{
-	int hp;
-
-	if ((char)rid != -1) {
-		AddMissile(plr[rid].position.tile, plr[rid].position.tile, 0, MIS_RESURRECTBEAM, TARGET_MONSTERS, pnum, 0, 0);
-	}
-
-	if (pnum == myplr) {
-		NewCursor(CURSOR_HAND);
-	}
-
-	if ((char)rid != -1 && plr[rid]._pHitPoints == 0) {
-		if (rid == myplr) {
-			deathflag = false;
-			gamemenu_off();
-			drawhpflag = true;
-			drawmanaflag = true;
-		}
-
-		ClrPlrPath(plr[rid]);
-		plr[rid].destAction = ACTION_NONE;
-		plr[rid]._pInvincible = false;
-		PlacePlayer(rid);
-
-		hp = 10 << 6;
-		if (plr[rid]._pMaxHPBase < (10 << 6)) {
-			hp = plr[rid]._pMaxHPBase;
-		}
-		SetPlayerHitPoints(rid, hp);
-
-		plr[rid]._pHPBase = plr[rid]._pHitPoints + (plr[rid]._pMaxHPBase - plr[rid]._pMaxHP);
-		plr[rid]._pMana = 0;
-		plr[rid]._pManaBase = plr[rid]._pMana + (plr[rid]._pMaxManaBase - plr[rid]._pMaxMana);
-
-		CalcPlrInv(rid, true);
-
-		if (plr[rid].plrlevel == currlevel) {
-			StartStand(rid, plr[rid]._pdir);
-		} else {
-			plr[rid]._pmode = PM_STAND;
-		}
-	}
-}
-
-void DoHealOther(int pnum, uint16_t rid)
-{
-	if (pnum == myplr) {
+	if (pnum == MyPlayerId) {
 		NewCursor(CURSOR_HAND);
 	}
 
 	if ((DWORD)pnum >= MAX_PLRS || rid >= MAX_PLRS) {
 		return;
 	}
-	auto &player = plr[pnum];
-	auto &target = plr[rid];
+
+	auto &target = Players[rid];
+
+	AddMissile(target.position.tile, target.position.tile, Direction::South, MIS_RESURRECTBEAM, TARGET_MONSTERS, pnum, 0, 0);
+
+	if (target._pHitPoints != 0)
+		return;
+
+	if (rid == MyPlayerId) {
+		MyPlayerIsDead = false;
+		gamemenu_off();
+		drawhpflag = true;
+		drawmanaflag = true;
+	}
+
+	ClrPlrPath(target);
+	target.destAction = ACTION_NONE;
+	target._pInvincible = false;
+	PlacePlayer(rid);
+
+	int hp = 10 << 6;
+	if (target._pMaxHPBase < (10 << 6)) {
+		hp = target._pMaxHPBase;
+	}
+	SetPlayerHitPoints(target, hp);
+
+	target._pHPBase = target._pHitPoints + (target._pMaxHPBase - target._pMaxHP); // CODEFIX: does the same stuff as SetPlayerHitPoints above, can be removed
+	target._pMana = 0;
+	target._pManaBase = target._pMana + (target._pMaxManaBase - target._pMaxMana);
+
+	CalcPlrInv(target, true);
+
+	if (target.plrlevel == currlevel) {
+		StartStand(rid, target._pdir);
+	} else {
+		target._pmode = PM_STAND;
+	}
+}
+
+void DoHealOther(int pnum, uint16_t rid)
+{
+	if (pnum == MyPlayerId) {
+		NewCursor(CURSOR_HAND);
+	}
+
+	if ((DWORD)pnum >= MAX_PLRS || rid >= MAX_PLRS) {
+		return;
+	}
+	auto &player = Players[pnum];
+	auto &target = Players[rid];
 
 	if ((target._pHitPoints >> 6) <= 0) {
 		return;
@@ -325,7 +323,7 @@ void DoHealOther(int pnum, uint16_t rid)
 	target._pHitPoints = std::min(target._pHitPoints + hp, target._pMaxHP);
 	target._pHPBase = std::min(target._pHPBase + hp, target._pMaxHPBase);
 
-	if (rid == myplr) {
+	if (rid == MyPlayerId) {
 		drawhpflag = true;
 	}
 }

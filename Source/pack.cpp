@@ -13,7 +13,29 @@
 
 namespace devilution {
 
-void PackItem(PkItemStruct *id, const ItemStruct *is)
+namespace {
+
+void VerifyGoldSeeds(Player &player)
+{
+	for (int i = 0; i < player._pNumInv; i++) {
+		if (player.InvList[i].IDidx != IDI_GOLD)
+			continue;
+		for (int j = 0; j < player._pNumInv; j++) {
+			if (i == j)
+				continue;
+			if (player.InvList[j].IDidx != IDI_GOLD)
+				continue;
+			if (player.InvList[i]._iSeed != player.InvList[j]._iSeed)
+				continue;
+			player.InvList[i]._iSeed = AdvanceRndSeed();
+			j = -1;
+		}
+	}
+}
+
+} // namespace
+
+void PackItem(ItemPack *id, const Item *is)
 {
 	memset(id, 0, sizeof(*id));
 	if (is->isEmpty()) {
@@ -52,7 +74,7 @@ void PackItem(PkItemStruct *id, const ItemStruct *is)
 	}
 }
 
-void PackPlayer(PkPlayerStruct *pPack, const PlayerStruct &player, bool manashield)
+void PackPlayer(PlayerPack *pPack, const Player &player, bool manashield)
 {
 	memset(pPack, 0, sizeof(*pPack));
 	pPack->destAction = player.destAction;
@@ -90,14 +112,13 @@ void PackPlayer(PkPlayerStruct *pPack, const PlayerStruct &player, bool manashie
 		PackItem(&pPack->InvBody[i], &player.InvBody[i]);
 	}
 
-	for (int i = 0; i < NUM_INV_GRID_ELEM; i++) {
+	pPack->_pNumInv = player._pNumInv;
+	for (int i = 0; i < pPack->_pNumInv; i++) {
 		PackItem(&pPack->InvList[i], &player.InvList[i]);
 	}
 
 	for (int i = 0; i < NUM_INV_GRID_ELEM; i++)
 		pPack->InvGrid[i] = player.InvGrid[i];
-
-	pPack->_pNumInv = player._pNumInv;
 
 	for (int i = 0; i < MAXBELTITEMS; i++) {
 		PackItem(&pPack->SpdList[i], &player.SpdList[i]);
@@ -115,21 +136,10 @@ void PackPlayer(PkPlayerStruct *pPack, const PlayerStruct &player, bool manashie
 		pPack->pManaShield = 0;
 }
 
-/**
- * Expand a PkItemStruct in to a ItemStruct
- *
- * Note: last slot of item[MAXITEMS+1] used as temporary buffer
- * find real name reference below, possibly [sizeof(item[])/sizeof(ItemStruct)]
- * @param is The source packed item
- * @param id The distination item
- */
-void UnPackItem(const PkItemStruct *is, ItemStruct *id, bool isHellfire)
+void UnPackItem(const ItemPack *is, Item *id, bool isHellfire)
 {
+	auto &item = Items[MAXITEMS];
 	auto idx = static_cast<_item_indexes>(SDL_SwapLE16(is->idx));
-	if (idx == 0xFFFF) {
-		id->_itype = ITYPE_NONE;
-		return;
-	}
 
 	if (gbIsSpawn) {
 		idx = RemapItemIdxFromSpawn(idx);
@@ -139,13 +149,13 @@ void UnPackItem(const PkItemStruct *is, ItemStruct *id, bool isHellfire)
 	}
 
 	if (!IsItemAvailable(idx)) {
-		id->_itype = ITYPE_NONE;
+		id->_itype = ItemType::None;
 		return;
 	}
 
 	if (idx == IDI_EAR) {
 		RecreateEar(
-		    MAXITEMS,
+		    item,
 		    SDL_SwapLE16(is->iCreateInfo),
 		    SDL_SwapLE32(is->iSeed),
 		    is->bId,
@@ -156,55 +166,67 @@ void UnPackItem(const PkItemStruct *is, ItemStruct *id, bool isHellfire)
 		    SDL_SwapLE16(is->wValue),
 		    SDL_SwapLE32(is->dwBuff));
 	} else {
-		memset(&items[MAXITEMS], 0, sizeof(*items));
-		RecreateItem(MAXITEMS, idx, SDL_SwapLE16(is->iCreateInfo), SDL_SwapLE32(is->iSeed), SDL_SwapLE16(is->wValue), isHellfire);
-		items[MAXITEMS]._iMagical = static_cast<item_quality>(is->bId >> 1);
-		items[MAXITEMS]._iIdentified = (is->bId & 1) != 0;
-		items[MAXITEMS]._iDurability = is->bDur;
-		items[MAXITEMS]._iMaxDur = is->bMDur;
-		items[MAXITEMS]._iCharges = is->bCh;
-		items[MAXITEMS]._iMaxCharges = is->bMCh;
+		memset(&item, 0, sizeof(item));
+		RecreateItem(item, idx, SDL_SwapLE16(is->iCreateInfo), SDL_SwapLE32(is->iSeed), SDL_SwapLE16(is->wValue), isHellfire);
+		item._iMagical = static_cast<item_quality>(is->bId >> 1);
 
-		RemoveInvalidItem(&items[MAXITEMS]);
+		item._iIdentified = (is->bId & 1) != 0;
+		item._iDurability = is->bDur;
+		item._iMaxDur = is->bMDur;
+		item._iCharges = is->bCh;
+		item._iMaxCharges = is->bMCh;
+
+		RemoveInvalidItem(item);
 
 		if (isHellfire)
-			items[MAXITEMS].dwBuff |= CF_HELLFIRE;
+			item.dwBuff |= CF_HELLFIRE;
 		else
-			items[MAXITEMS].dwBuff &= ~CF_HELLFIRE;
+			item.dwBuff &= ~CF_HELLFIRE;
 	}
-	*id = items[MAXITEMS];
+	*id = item;
 }
 
-static void VerifyGoldSeeds(PlayerStruct &player)
+bool UnPackPlayer(const PlayerPack *pPack, Player &player, bool netSync)
 {
-	for (int i = 0; i < player._pNumInv; i++) {
-		if (player.InvList[i].IDidx != IDI_GOLD)
-			continue;
-		for (int j = 0; j < player._pNumInv; j++) {
-			if (i == j)
-				continue;
-			if (player.InvList[j].IDidx != IDI_GOLD)
-				continue;
-			if (player.InvList[i]._iSeed != player.InvList[j]._iSeed)
-				continue;
-			player.InvList[i]._iSeed = AdvanceRndSeed();
-			j = -1;
-		}
+	Point position { pPack->px, pPack->py };
+	if (!InDungeonBounds(position)) {
+		return false;
 	}
-}
 
-void UnPackPlayer(const PkPlayerStruct *pPack, int pnum, bool netSync)
-{
-	auto &player = plr[pnum];
+	uint8_t dungeonLevel = pPack->plrlevel;
+	if (dungeonLevel >= NUMLEVELS) {
+		return false;
+	}
 
-	player.position.tile = { pPack->px, pPack->py };
-	player.position.future = { pPack->px, pPack->py };
-	player.plrlevel = pPack->plrlevel;
+	if (pPack->pClass >= enum_size<HeroClass>::value) {
+		return false;
+	}
+	auto heroClass = static_cast<HeroClass>(pPack->pClass);
+
+	if (pPack->pLevel >= MAXCHARLEVEL || pPack->pLevel < 1) {
+		return false;
+	}
+	uint32_t difficulty = SDL_SwapLE32(pPack->pDifficulty);
+	if (difficulty > DIFF_LAST) {
+		return false;
+	}
+
+	player._pLevel = pPack->pLevel;
+
+	player.position.tile = position;
+	player.position.future = position;
+	player.plrlevel = dungeonLevel;
+
+	player._pClass = heroClass;
+
 	ClrPlrPath(player);
 	player.destAction = ACTION_NONE;
-	strcpy(player._pName, pPack->pName);
-	player._pClass = (HeroClass)pPack->pClass;
-	InitPlayer(pnum, true);
+
+	strncpy(player._pName, pPack->pName, PLR_NAME_LEN - 1);
+	player._pName[PLR_NAME_LEN - 1] = '\0';
+
+	InitPlayer(player, true);
+
 	player._pBaseStr = pPack->pBaseStr;
 	player._pStrength = pPack->pBaseStr;
 	player._pBaseMag = pPack->pBaseMag;
@@ -213,13 +235,13 @@ void UnPackPlayer(const PkPlayerStruct *pPack, int pnum, bool netSync)
 	player._pDexterity = pPack->pBaseDex;
 	player._pBaseVit = pPack->pBaseVit;
 	player._pVitality = pPack->pBaseVit;
-	player._pLevel = pPack->pLevel;
+
 	player._pStatPts = pPack->pStatPts;
 	player._pExperience = SDL_SwapLE32(pPack->pExperience);
 	player._pGold = SDL_SwapLE32(pPack->pGold);
 	player._pMaxHPBase = SDL_SwapLE32(pPack->pMaxHPBase);
 	player._pHPBase = SDL_SwapLE32(pPack->pHPBase);
-	player._pBaseToBlk = ToBlkTbl[static_cast<std::size_t>(player._pClass)];
+	player._pBaseToBlk = BlockBonuses[static_cast<std::size_t>(player._pClass)];
 	if (!netSync)
 		if ((int)(player._pHPBase & 0xFFFFFFC0) < 64)
 			player._pHPBase = 64;
@@ -239,7 +261,8 @@ void UnPackPlayer(const PkPlayerStruct *pPack, int pnum, bool netSync)
 		UnPackItem(&packedItem, &player.InvBody[i], isHellfire);
 	}
 
-	for (int i = 0; i < NUM_INV_GRID_ELEM; i++) {
+	player._pNumInv = pPack->_pNumInv;
+	for (int i = 0; i < player._pNumInv; i++) {
 		auto packedItem = pPack->InvList[i];
 		bool isHellfire = netSync ? ((packedItem.dwBuff & CF_HELLFIRE) != 0) : (pPack->bIsHellfire != 0);
 		UnPackItem(&packedItem, &player.InvList[i], isHellfire);
@@ -248,7 +271,6 @@ void UnPackPlayer(const PkPlayerStruct *pPack, int pnum, bool netSync)
 	for (int i = 0; i < NUM_INV_GRID_ELEM; i++)
 		player.InvGrid[i] = pPack->InvGrid[i];
 
-	player._pNumInv = pPack->_pNumInv;
 	VerifyGoldSeeds(player);
 
 	for (int i = 0; i < MAXBELTITEMS; i++) {
@@ -257,12 +279,12 @@ void UnPackPlayer(const PkPlayerStruct *pPack, int pnum, bool netSync)
 		UnPackItem(&packedItem, &player.SpdList[i], isHellfire);
 	}
 
-	if (pnum == myplr) {
+	if (&player == &Players[MyPlayerId]) {
 		for (int i = 0; i < 20; i++)
-			witchitem[i]._itype = ITYPE_NONE;
+			witchitem[i]._itype = ItemType::None;
 	}
 
-	CalcPlrInv(pnum, false);
+	CalcPlrInv(player, false);
 	player.wReflections = SDL_SwapLE16(pPack->wReflections);
 	player.pTownWarps = 0;
 	player.pDungMsgs = 0;
@@ -270,9 +292,11 @@ void UnPackPlayer(const PkPlayerStruct *pPack, int pnum, bool netSync)
 	player.pLvlLoad = 0;
 	player.pDiabloKillLevel = SDL_SwapLE32(pPack->pDiabloKillLevel);
 	player.pBattleNet = pPack->pBattleNet != 0;
-	player.pManaShield = SDL_SwapLE32(pPack->pManaShield);
-	player.pDifficulty = (_difficulty)SDL_SwapLE32(pPack->pDifficulty);
+	player.pManaShield = pPack->pManaShield != 0;
+	player.pDifficulty = static_cast<_difficulty>(difficulty);
 	player.pDamAcFlags = SDL_SwapLE32(pPack->pDamAcFlags);
+
+	return true;
 }
 
 } // namespace devilution

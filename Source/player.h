@@ -32,6 +32,8 @@ namespace devilution {
 #define MAX_SPELL_LEVEL 15
 #define PLR_NAME_LEN 32
 
+constexpr int BaseHitChance = 50;
+
 /** Walking directions */
 enum {
 	// clang-format off
@@ -94,16 +96,16 @@ enum class player_graphic : uint8_t {
 	LAST = Block
 };
 
-enum anim_weapon_id : uint8_t {
-	ANIM_ID_UNARMED,
-	ANIM_ID_UNARMED_SHIELD,
-	ANIM_ID_SWORD,
-	ANIM_ID_SWORD_SHIELD,
-	ANIM_ID_BOW,
-	ANIM_ID_AXE,
-	ANIM_ID_MACE,
-	ANIM_ID_MACE_SHIELD,
-	ANIM_ID_STAFF,
+enum class PlayerWeaponGraphic : uint8_t {
+	Unarmed,
+	UnarmedShield,
+	Sword,
+	SwordShield,
+	Bow,
+	Axe,
+	Mace,
+	MaceShield,
+	Staff,
 };
 
 enum PLR_MODE : uint8_t {
@@ -144,11 +146,6 @@ enum action_id : int8_t {
 	// clang-format on
 };
 
-enum player_weapon_type : uint8_t {
-	WT_MELEE,
-	WT_RANGED,
-};
-
 /**
  * @brief Contains Data (CelSprites) for a player graphic (player_graphic)
  */
@@ -162,12 +159,17 @@ struct PlayerAnimationData {
 	 *        Is referenced from CelSprite in CelSpritesForDirections
 	 */
 	std::unique_ptr<byte[]> RawData;
+
+	inline const std::optional<CelSprite> &GetCelSpritesForDirection(Direction direction) const
+	{
+		return CelSpritesForDirections[static_cast<size_t>(direction)];
+	}
 };
 
-struct PlayerStruct {
-	PlayerStruct() = default;
-	PlayerStruct(PlayerStruct &&) noexcept = default;
-	PlayerStruct &operator=(PlayerStruct &&) noexcept = default;
+struct Player {
+	Player() = default;
+	Player(Player &&) noexcept = default;
+	Player &operator=(Player &&) noexcept = default;
 
 	PLR_MODE _pmode;
 	int8_t walkpath[MAX_PATH_LENGTH];
@@ -177,10 +179,10 @@ struct PlayerStruct {
 	int destParam2;
 	Direction destParam3;
 	int destParam4;
-	int plrlevel;
+	uint8_t plrlevel;
 	ActorPosition position;
 	Direction _pdir; // Direction faced by player (direction enum)
-	int _pgfxnum;    // Bitmask indicating what variant of the sprite the player is using. Lower byte define weapon (anim_weapon_id) and higher values define armour (starting with anim_armor_id)
+	int _pgfxnum;    // Bitmask indicating what variant of the sprite the player is using. Lower byte define weapon (PlayerWeaponGraphic) and higher values define armour (starting with PlayerArmorGraphic)
 	/**
 	 * @brief Contains Information for current Animation
 	 */
@@ -191,11 +193,9 @@ struct PlayerStruct {
 	spell_type _pSplType;
 	int8_t _pSplFrom; // TODO Create enum
 	spell_id _pTSpell;
-	spell_type _pTSplType;
 	spell_id _pRSpell;
 	spell_type _pRSplType;
 	spell_id _pSBkSpell;
-	spell_type _pSBkSplType;
 	int8_t _pSplLvl[64];
 	uint64_t _pMemSpells;  // Bitmask of learned spells
 	uint64_t _pAblSpells;  // Bitmask of abilities
@@ -203,7 +203,6 @@ struct PlayerStruct {
 	uint8_t _pSpellFlags;
 	spell_id _pSplHotKey[4];
 	spell_type _pSplTHotKey[4];
-	player_weapon_type _pwtype;
 	bool _pBlockFlag;
 	bool _pInvincible;
 	int8_t _pLightRad;
@@ -233,9 +232,8 @@ struct PlayerStruct {
 	int _pManaPer;
 	int8_t _pLevel;
 	int8_t _pMaxLvl;
-	int _pExperience;
-	int _pMaxExp;
-	int _pNextExper;
+	uint32_t _pExperience;
+	uint32_t _pNextExper;
 	int8_t _pArmorClass;
 	int8_t _pMagResist;
 	int8_t _pFireResist;
@@ -244,10 +242,8 @@ struct PlayerStruct {
 	bool _pInfraFlag;
 	/** Player's direction when ending movement. Also used for casting direction of SPL_FIREWALL. */
 	Direction tempDirection;
-	/** Used for spell level, and X component of _pVar5 */
-	int _pVar4;
-	/** Used for storing position of a tile which should have its BFLAG_PLAYERLR flag removed after walking. When starting to walk the game places the player in the dPlayer array -1 in the Y coordinate, and uses BFLAG_PLAYERLR to check if it should be using -1 to the Y coordinate when rendering the player (also used for storing the level of a spell when the player casts it) */
-	int _pVar5;
+	/** Used for spell level */
+	int spellLevel;
 	/** Used for stalling the appearance of the options screen after dying in singleplayer */
 	int deathFrame;
 	bool _pLvlVisited[NUMLEVELS];
@@ -265,12 +261,12 @@ struct PlayerStruct {
 	int _pHFrames;
 	int _pDFrames;
 	int _pBFrames;
-	ItemStruct InvBody[NUM_INVLOC];
-	ItemStruct InvList[NUM_INV_GRID_ELEM];
+	Item InvBody[NUM_INVLOC];
+	Item InvList[NUM_INV_GRID_ELEM];
 	int _pNumInv;
 	int8_t InvGrid[NUM_INV_GRID_ELEM];
-	ItemStruct SpdList[MAXBELTITEMS];
-	ItemStruct HoldItem;
+	Item SpdList[MAXBELTITEMS];
+	Item HoldItem;
 	int _pIMinDam;
 	int _pIMaxDam;
 	int _pIAC;
@@ -329,9 +325,9 @@ struct PlayerStruct {
 	 * matching items were found.
 	 */
 	template <typename TPredicate>
-	const ItemStruct *GetMostValuableItem(const TPredicate &itemPredicate) const
+	const Item *GetMostValuableItem(const TPredicate &itemPredicate) const
 	{
-		const auto getMostValuableItem = [&itemPredicate](const ItemStruct *begin, const ItemStruct *end, const ItemStruct *mostValuableItem = nullptr) {
+		const auto getMostValuableItem = [&itemPredicate](const Item *begin, const Item *end, const Item *mostValuableItem = nullptr) {
 			for (const auto *item = begin; item < end; item++) {
 				if (item->isEmpty() || !itemPredicate(*item)) {
 					continue;
@@ -345,7 +341,7 @@ struct PlayerStruct {
 			return mostValuableItem;
 		};
 
-		const ItemStruct *mostValuableItem = getMostValuableItem(SpdList, SpdList + MAXBELTITEMS);
+		const Item *mostValuableItem = getMostValuableItem(SpdList, SpdList + MAXBELTITEMS);
 		mostValuableItem = getMostValuableItem(InvBody, InvBody + inv_body_loc::NUM_INVLOC, mostValuableItem);
 		mostValuableItem = getMostValuableItem(InvList, InvList + _pNumInv, mostValuableItem);
 
@@ -358,6 +354,13 @@ struct PlayerStruct {
 	 * @return The base value for the requested attribute.
 	 */
 	int GetBaseAttributeValue(CharacterAttribute attribute) const;
+
+	/**
+	 * @brief Gets the current value of the player's specified attribute.
+	 * @param attribute The attribute to retrieve the current value for
+	 * @return The current value for the requested attribute.
+	 */
+	int GetCurrentAttributeValue(CharacterAttribute attribute) const;
 
 	/**
 	 * @brief Gets the maximum value of the player's specified attribute.
@@ -373,7 +376,7 @@ struct PlayerStruct {
 
 	/**
 	 * @brief Says a speech line.
-	 * @todo BUGFIX Prevent more then one speech to be played at a time (reject new requests).
+	 * @todo BUGFIX Prevent more than one speech to be played at a time (reject new requests).
 	 */
 	void Say(HeroSpeech speechId) const;
 	/**
@@ -399,23 +402,194 @@ struct PlayerStruct {
 	bool IsWalking() const;
 
 	/**
-	 * @brief Resets all Data of the current PlayerStruct
+	 * @brief Resets all Data of the current Player
 	 */
 	void Reset();
+
+	/**
+	 * @brief Return player's armor value
+	 */
+	int GetArmor() const
+	{
+		return _pIBonusAC + _pIAC + _pDexterity / 5;
+	}
+
+	/**
+	 * @brief Return player's melee to hit value
+	 */
+	int GetMeleeToHit() const
+	{
+		int hper = _pLevel + _pDexterity / 2 + _pIBonusToHit + BaseHitChance;
+		if (_pClass == HeroClass::Warrior)
+			hper += 20;
+		return hper;
+	}
+
+	/**
+	 * @brief Return player's melee to hit value, including armor piercing
+	 */
+	int GetMeleePiercingToHit() const
+	{
+		int hper = GetMeleeToHit();
+		//in hellfire armor piercing ignores % of enemy armor instead, no way to include it here
+		if (!gbIsHellfire)
+			hper += _pIEnAc;
+		return hper;
+	}
+
+	/**
+	 * @brief Return player's ranged to hit value
+	 */
+	int GetRangedToHit() const
+	{
+		int hper = _pLevel + _pDexterity + _pIBonusToHit + BaseHitChance;
+		if (_pClass == HeroClass::Rogue)
+			hper += 20;
+		else if (_pClass == HeroClass::Warrior || _pClass == HeroClass::Bard)
+			hper += 10;
+		return hper;
+	}
+
+	int GetRangedPiercingToHit() const
+	{
+		int hper = GetRangedToHit();
+		//in hellfire armor piercing ignores % of enemy armor instead, no way to include it here
+		if (!gbIsHellfire)
+			hper += _pIEnAc;
+		return hper;
+	}
+
+	/**
+	 * @brief Return magic hit chance
+	 */
+	int GetMagicToHit() const
+	{
+		int hper = _pMagic + BaseHitChance;
+		if (_pClass == HeroClass::Sorcerer)
+			hper += 20;
+		else if (_pClass == HeroClass::Bard)
+			hper += 10;
+		return hper;
+	}
+
+	/**
+	 * @brief Return block chance
+	 * @param useLevel - indicate if player's level should be added to block chance (the only case where it isn't is blocking a trap)
+	 */
+	int GetBlockChance(bool useLevel = true) const
+	{
+		int blkper = _pDexterity + _pBaseToBlk;
+		if (useLevel)
+			blkper += _pLevel * 2;
+		return blkper;
+	}
+
+	/**
+	 * @brief Return monster armor value after including player's armor piercing % (hellfire only)
+	 * @param monsterArmor - monster armor before applying % armor pierce
+	 * @param isMelee - indicates if it's melee or ranged combat
+	 */
+	int CalculateArmorPierce(int monsterArmor, bool isMelee) const
+	{
+		int tmac = monsterArmor;
+		if (gbIsHellfire && _pIEnAc > 0) {
+			int pIEnAc = _pIEnAc - 1;
+			if (pIEnAc > 0)
+				tmac >>= pIEnAc;
+			else
+				tmac -= tmac / 4;
+		}
+		if (isMelee && _pClass == HeroClass::Barbarian) {
+			tmac -= monsterArmor / 8;
+		}
+		if (tmac < 0)
+			tmac = 0;
+
+		return tmac;
+	}
+
+	/**
+	 * @brief Calculates the players current Hit Points as a percentage of their max HP and stores it for later reference
+	 *
+	 * The stored value is unused...
+	 * @see _pHPPer
+	 * @return The players current hit points as a percentage of their maximum (from 0 to 80%)
+	*/
+	int UpdateHitPointPercentage()
+	{
+		if (_pMaxHP <= 0) { // divide by zero guard
+			_pHPPer = 0;
+		} else {
+			// Maximum achievable HP is approximately 1200. Diablo uses fixed point integers where the last 6 bits are
+			// fractional values. This means that we will never overflow HP values normally by doing this multiplication
+			// as the max value is representable in 17 bits and the multiplication result will be at most 23 bits
+			_pHPPer = clamp(_pHitPoints * 80 / _pMaxHP, 0, 80); // hp should never be greater than maxHP but just in case
+		}
+
+		return _pHPPer;
+	}
+
+	int UpdateManaPercentage()
+	{
+		if (_pMaxMana <= 0) {
+			_pManaPer = 0;
+		} else {
+			_pManaPer = clamp(_pMana * 80 / _pMaxMana, 0, 80);
+		}
+
+		return _pManaPer;
+	}
+
+	/**
+	 * @brief Sets the readied spell to the spell in the specified equipment slot. Does nothing if the item does not have a valid spell.
+	 * @param bodyLocation - the body location whose item will be checked for the spell.
+	 */
+	void ReadySpellFromEquipment(inv_body_loc bodyLocation)
+	{
+		auto &item = InvBody[bodyLocation];
+		if (item._itype == ItemType::Staff && item._iSpell != SPL_NULL && item._iCharges > 0) {
+			_pRSpell = item._iSpell;
+			_pRSplType = RSPLTYPE_CHARGES;
+			force_redraw = 255;
+		}
+	}
+
+	/**
+	 * @brief Does the player currently have a ranged weapon equipped?
+	 */
+	bool UsesRangedWeapon() const
+	{
+		return static_cast<PlayerWeaponGraphic>(_pgfxnum & 0xF) == PlayerWeaponGraphic::Bow;
+	}
+
+	bool CanChangeAction()
+	{
+		if (_pmode == PM_STAND)
+			return true;
+		if (_pmode == PM_ATTACK && AnimInfo.CurrentFrame > _pAFNum)
+			return true;
+		if (_pmode == PM_RATTACK && AnimInfo.CurrentFrame > _pAFNum)
+			return true;
+		if (_pmode == PM_SPELL && AnimInfo.CurrentFrame > _pSFNum)
+			return true;
+		if (IsWalking() && AnimInfo.CurrentFrame == AnimInfo.NumberOfFrames)
+			return true;
+		return false;
+	}
 };
 
-extern int myplr;
-extern PlayerStruct plr[MAX_PLRS];
-extern bool deathflag;
-extern int ToBlkTbl[enum_size<HeroClass>::value];
+extern int MyPlayerId;
+extern Player *MyPlayer;
+extern Player Players[MAX_PLRS];
+extern bool MyPlayerIsDead;
+extern int BlockBonuses[enum_size<HeroClass>::value];
 
-void LoadPlrGFX(PlayerStruct &player, player_graphic graphic);
-void InitPlayerGFX(PlayerStruct &player);
-void ResetPlayerGFX(PlayerStruct &player);
+void LoadPlrGFX(Player &player, player_graphic graphic);
+void InitPlayerGFX(Player &player);
+void ResetPlayerGFX(Player &player);
 
 /**
  * @brief Sets the new Player Animation with all relevant information for rendering
- * @param pnum Player Id
  * @param graphic What player animation should be displayed
  * @param dir Direction of the animation
  * @param numberOfFrames Number of Frames in Animation
@@ -424,57 +598,54 @@ void ResetPlayerGFX(PlayerStruct &player);
  * @param numSkippedFrames Number of Frames that will be skipped (for example with modifier "faster attack")
  * @param distributeFramesBeforeFrame Distribute the numSkippedFrames only before this frame
  */
-void NewPlrAnim(PlayerStruct &player, player_graphic graphic, Direction dir, int numberOfFrames, int delayLen, AnimationDistributionFlags flags = AnimationDistributionFlags::None, int numSkippedFrames = 0, int distributeFramesBeforeFrame = 0);
-void SetPlrAnims(PlayerStruct &player);
+void NewPlrAnim(Player &player, player_graphic graphic, Direction dir, int numberOfFrames, int delayLen, AnimationDistributionFlags flags = AnimationDistributionFlags::None, int numSkippedFrames = 0, int distributeFramesBeforeFrame = 0);
+void SetPlrAnims(Player &player);
 void CreatePlayer(int playerId, HeroClass c);
-int CalcStatDiff(PlayerStruct &player);
+int CalcStatDiff(Player &player);
 #ifdef _DEBUG
 void NextPlrLevel(int pnum);
 #endif
 void AddPlrExperience(int pnum, int lvl, int exp);
 void AddPlrMonstExper(int lvl, int exp, char pmask);
 void ApplyPlrDamage(int pnum, int dam, int minHP = 0, int frac = 0, int earflag = 0);
-void InitPlayer(int pnum, bool FirstTime);
+void InitPlayer(Player &player, bool FirstTime);
 void InitMultiView();
-bool SolidLoc(Point position);
 void PlrClrTrans(Point position);
 void PlrDoTrans(Point position);
-void SetPlayerOld(PlayerStruct &player);
+void SetPlayerOld(Player &player);
 void FixPlayerLocation(int pnum, Direction bDir);
 void StartStand(int pnum, Direction dir);
-void StartAttack(int pnum, Direction d);
 void StartPlrBlock(int pnum, Direction dir);
 void FixPlrWalkTags(int pnum);
 void RemovePlrFromMap(int pnum);
 void StartPlrHit(int pnum, int dam, bool forcehit);
 void StartPlayerKill(int pnum, int earflag);
-void DropHalfPlayersGold(int pnum);
-void StripTopGold(int pnum);
+void StripTopGold(Player &player);
 void SyncPlrKill(int pnum, int earflag);
 void RemovePlrMissiles(int pnum);
 void StartNewLvl(int pnum, interface_mode fom, int lvl);
 void RestartTownLvl(int pnum);
 void StartWarpLvl(int pnum, int pidx);
 void ProcessPlayers();
-void ClrPlrPath(PlayerStruct &player);
-bool PosOkPlayer(int pnum, Point position);
-void MakePlrPath(int pnum, Point targetPosition, bool endspace);
-void CalcPlrStaff(PlayerStruct &player);
-void CheckPlrSpell();
+void ClrPlrPath(Player &player);
+bool PosOkPlayer(const Player &player, Point position);
+void MakePlrPath(Player &player, Point targetPosition, bool endspace);
+void CalcPlrStaff(Player &player);
+void CheckPlrSpell(bool isShiftHeld);
 void SyncPlrAnim(int pnum);
 void SyncInitPlrPos(int pnum);
 void SyncInitPlr(int pnum);
-void CheckStats(PlayerStruct &player);
+void CheckStats(Player &player);
 void ModifyPlrStr(int p, int l);
 void ModifyPlrMag(int p, int l);
 void ModifyPlrDex(int p, int l);
 void ModifyPlrVit(int p, int l);
-void SetPlayerHitPoints(int pnum, int val);
-void SetPlrStr(int p, int v);
-void SetPlrMag(int p, int v);
-void SetPlrDex(int p, int v);
-void SetPlrVit(int p, int v);
-void InitDungMsgs(PlayerStruct &player);
+void SetPlayerHitPoints(Player &player, int val);
+void SetPlrStr(Player &player, int v);
+void SetPlrMag(Player &player, int v);
+void SetPlrDex(Player &player, int v);
+void SetPlrVit(Player &player, int v);
+void InitDungMsgs(Player &player);
 void PlayDungMsgs();
 
 /* data */
@@ -487,6 +658,6 @@ extern int StrengthTbl[enum_size<HeroClass>::value];
 extern int MagicTbl[enum_size<HeroClass>::value];
 extern int DexterityTbl[enum_size<HeroClass>::value];
 extern int VitalityTbl[enum_size<HeroClass>::value];
-extern int ExpLvlsTbl[MAXCHARLEVEL];
+extern uint32_t ExpLvlsTbl[MAXCHARLEVEL];
 
 } // namespace devilution

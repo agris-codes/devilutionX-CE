@@ -31,19 +31,15 @@ enum cursor_id : uint8_t {
 	CURSOR_FIRSTITEM,
 };
 
-extern int cursW;
-extern int cursH;
+extern Size cursSize;
 extern int pcursmonst;
-extern int icursW28;
-extern int icursH28;
-extern int icursH;
+extern Size icursSize28;
+extern Size icursSize;
 extern int8_t pcursinvitem;
-extern int icursW;
 extern int8_t pcursitem;
 extern int8_t pcursobj;
 extern int8_t pcursplr;
-extern int cursmx;
-extern int cursmy;
+extern Point cursPosition;
 extern int pcurs;
 
 void InitCursor();
@@ -60,7 +56,7 @@ inline bool IsItemSprite(int cursId)
 	return cursId >= CURSOR_FIRSTITEM;
 }
 
-void CelDrawCursor(const CelOutputBuffer &out, Point position, int cursId);
+void CelDrawCursor(const Surface &out, Point position, int cursId);
 
 /** Returns the sprite for the given inventory index. */
 const CelSprite &GetInvItemSprite(int i);

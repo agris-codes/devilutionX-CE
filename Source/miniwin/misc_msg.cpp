@@ -1,6 +1,12 @@
 #include <SDL.h>
 #include <cstdint>
 #include <deque>
+#include <string>
+#ifdef USE_SDL1
+#include <codecvt>
+#include <locale>
+#include <cassert>
+#endif
 
 #include "control.h"
 #include "controls/controller.h"
@@ -8,17 +14,25 @@
 #include "controls/game_controls.h"
 #include "controls/plrctrls.h"
 #include "controls/remap_keyboard.h"
-#include "controls/touch.h"
+#include "controls/touch/event_handlers.h"
 #include "cursor.h"
+#include "engine/demomode.h"
 #include "engine/rectangle.hpp"
 #include "hwcursor.hpp"
 #include "inv.h"
+#include "menu.h"
 #include "miniwin/miniwin.h"
 #include "movie.h"
+#include "storm/storm.h"
 #include "utils/display.h"
 #include "utils/log.hpp"
 #include "utils/sdl_compat.h"
 #include "utils/stubs.h"
+#include "utils/utf8.h"
+
+#ifdef __vita__
+#include "platform/vita/touch.h"
+#endif
 
 #ifdef __SWITCH__
 #include "platform/switch/docking.h"
@@ -37,18 +51,19 @@ static std::deque<tagMSG> message_queue;
 bool mouseWarping = false;
 Point mousePositionWarping;
 
-void SetCursorPos(int x, int y)
+void SetCursorPos(Point position)
 {
-	mousePositionWarping = { x, y };
+	mousePositionWarping = position;
 	mouseWarping = true;
-	LogicalToOutput(&x, &y);
-	SDL_WarpMouseInWindow(ghMainWnd, x, y);
+	LogicalToOutput(&position.x, &position.y);
+	if (!demo::IsRunning())
+		SDL_WarpMouseInWindow(ghMainWnd, position.x, position.y);
 }
 
 // Moves the mouse to the first attribute "+" button.
 void FocusOnCharInfo()
 {
-	auto &myPlayer = plr[myplr];
+	auto &myPlayer = Players[MyPlayerId];
 
 	if (invflag || myPlayer._pStatPts <= 0)
 		return;
@@ -56,31 +71,14 @@ void FocusOnCharInfo()
 	// Find the first incrementable stat.
 	int stat = -1;
 	for (auto attribute : enum_values<CharacterAttribute>()) {
-		int max = myPlayer.GetMaximumAttributeValue(attribute);
-		switch (attribute) {
-		case CharacterAttribute::Strength:
-			if (myPlayer._pBaseStr >= max)
-				continue;
-			break;
-		case CharacterAttribute::Magic:
-			if (myPlayer._pBaseMag >= max)
-				continue;
-			break;
-		case CharacterAttribute::Dexterity:
-			if (myPlayer._pBaseDex >= max)
-				continue;
-			break;
-		case CharacterAttribute::Vitality:
-			if (myPlayer._pBaseVit >= max)
-				continue;
-			break;
-		}
+		if (myPlayer.GetBaseAttributeValue(attribute) >= myPlayer.GetMaximumAttributeValue(attribute))
+			continue;
 		stat = static_cast<int>(attribute);
 	}
 	if (stat == -1)
 		return;
-	const Rectangle &rect = ChrBtnsRect[stat];
-	SetCursorPos(rect.position.x + (rect.size.width / 2), rect.position.y + (rect.size.height / 2));
+
+	SetCursorPos(ChrBtnsRect[stat].Center());
 }
 
 static int TranslateSdlKey(SDL_Keysym key)
@@ -255,7 +253,7 @@ static int TranslateSdlKey(SDL_Keysym key)
 
 namespace {
 
-int32_t PositionForMouse(short x, short y)
+int32_t PositionForMouse(int16_t x, int16_t y)
 {
 	return (((uint16_t)(y & 0xFFFF)) << 16) | (uint16_t)(x & 0xFFFF);
 }
@@ -263,6 +261,7 @@ int32_t PositionForMouse(short x, short y)
 int32_t KeystateForMouse(int32_t ret)
 {
 	ret |= (SDL_GetModState() & KMOD_SHIFT) != 0 ? DVL_MK_SHIFT : 0;
+	ret |= (SDL_GetModState() & KMOD_CTRL) != 0 ? DVL_MK_CTRL : 0;
 	// XXX: other DVL_MK_* codes not implemented
 	return ret;
 }
@@ -283,7 +282,7 @@ bool BlurInventory()
 {
 	if (pcurs >= CURSOR_FIRSTITEM) {
 		if (!TryDropItem()) {
-			plr[myplr].Say(HeroSpeech::WhereWouldIPutThis);
+			Players[MyPlayerId].Say(HeroSpeech::WhereWouldIPutThis);
 			return false;
 		}
 	}
@@ -297,7 +296,7 @@ bool BlurInventory()
 	return true;
 }
 
-bool FetchMessage(tagMSG *lpMsg)
+bool FetchMessage_Real(tagMSG *lpMsg)
 {
 #ifdef __SWITCH__
 	HandleDocking();
@@ -323,7 +322,24 @@ bool FetchMessage(tagMSG *lpMsg)
 		return true;
 	}
 
-#ifndef USE_SDL1
+#if !defined(USE_SDL1) && !defined(__vita__)
+	if (!movie_playing) {
+		// SDL generates mouse events from touch-based inputs to provide basic
+		// touchscreeen support for apps that don't explicitly handle touch events
+		if (IsAnyOf(e.type, SDL_MOUSEBUTTONDOWN, SDL_MOUSEBUTTONUP) && e.button.which == SDL_TOUCH_MOUSEID)
+			return true;
+		if (e.type == SDL_MOUSEMOTION && e.motion.which == SDL_TOUCH_MOUSEID)
+			return true;
+		if (e.type == SDL_MOUSEWHEEL && e.wheel.which == SDL_TOUCH_MOUSEID)
+			return true;
+	}
+#endif
+
+#if defined(VIRTUAL_GAMEPAD) && !defined(USE_SDL1)
+	HandleTouchEvent(e);
+#endif
+
+#ifdef __vita__
 	handle_touch(&e, MousePosition.x, MousePosition.y);
 #endif
 
@@ -385,7 +401,7 @@ bool FetchMessage(tagMSG *lpMsg)
 				else
 					spselflag = false;
 				chrflag = false;
-				questlog = false;
+				QuestLogIsOpen = false;
 				sbookflag = false;
 				StoreSpellCoords();
 			}
@@ -393,7 +409,7 @@ bool FetchMessage(tagMSG *lpMsg)
 		case GameActionType_TOGGLE_CHARACTER_INFO:
 			chrflag = !chrflag;
 			if (chrflag) {
-				questlog = false;
+				QuestLogIsOpen = false;
 				spselflag = false;
 				if (pcurs == CURSOR_DISARM)
 					NewCursor(CURSOR_HAND);
@@ -401,12 +417,12 @@ bool FetchMessage(tagMSG *lpMsg)
 			}
 			break;
 		case GameActionType_TOGGLE_QUEST_LOG:
-			if (!questlog) {
+			if (!QuestLogIsOpen) {
 				StartQuestlog();
 				chrflag = false;
 				spselflag = false;
 			} else {
-				questlog = false;
+				QuestLogIsOpen = false;
 			}
 			break;
 		case GameActionType_TOGGLE_INVENTORY:
@@ -446,7 +462,7 @@ bool FetchMessage(tagMSG *lpMsg)
 			break;
 		}
 		return true;
-#ifndef USE_SDL1
+#ifdef __vita__
 	}
 	if (e.type < SDL_JOYAXISMOTION || (e.type >= SDL_FINGERDOWN && e.type < SDL_DOLLARGESTURE)) {
 #else
@@ -464,11 +480,21 @@ bool FetchMessage(tagMSG *lpMsg)
 		break;
 	case SDL_KEYDOWN:
 	case SDL_KEYUP: {
+#ifdef USE_SDL1
+		if (gbRunGame && IsTalkActive()) {
+			Uint16 unicode = e.key.keysym.unicode;
+			if (unicode >= ' ') {
+				std::wstring_convert<std::codecvt_utf8<char32_t>, char32_t> convert;
+				std::string utf8 = convert.to_bytes(unicode);
+				control_new_text(utf8);
+			}
+		}
+#endif
 		int key = TranslateSdlKey(e.key.keysym);
 		if (key == -1)
 			return FalseAvail(e.type == SDL_KEYDOWN ? "SDL_KEYDOWN" : "SDL_KEYUP", e.key.keysym.sym);
 		lpMsg->message = e.type == SDL_KEYDOWN ? DVL_WM_KEYDOWN : DVL_WM_KEYUP;
-		lpMsg->wParam = (DWORD)key;
+		lpMsg->wParam = (uint32_t)key;
 		// HACK: Encode modifier in lParam for TranslateMessage later
 		lpMsg->lParam = e.key.keysym.mod << 16;
 	} break;
@@ -523,8 +549,14 @@ bool FetchMessage(tagMSG *lpMsg)
 		return FalseAvail("SDL_KEYMAPCHANGED", 0);
 #endif
 	case SDL_TEXTEDITING:
+		if (gbRunGame)
+			break;
 		return FalseAvail("SDL_TEXTEDITING", e.edit.length);
 	case SDL_TEXTINPUT:
+		if (gbRunGame && IsTalkActive()) {
+			control_new_text(e.text.text);
+			break;
+		}
 		return FalseAvail("SDL_TEXTINPUT", e.text.windowID);
 	case SDL_WINDOWEVENT:
 		switch (e.window.event) {
@@ -549,8 +581,6 @@ bool FetchMessage(tagMSG *lpMsg)
 		case SDL_WINDOWEVENT_MINIMIZED:
 		case SDL_WINDOWEVENT_MAXIMIZED:
 		case SDL_WINDOWEVENT_RESTORED:
-		case SDL_WINDOWEVENT_FOCUS_GAINED:
-		case SDL_WINDOWEVENT_FOCUS_LOST:
 #if SDL_VERSION_ATLEAST(2, 0, 5)
 		case SDL_WINDOWEVENT_TAKE_FOCUS:
 #endif
@@ -567,6 +597,14 @@ bool FetchMessage(tagMSG *lpMsg)
 		case SDL_WINDOWEVENT_CLOSE:
 			lpMsg->message = DVL_WM_QUERYENDSESSION;
 			break;
+
+		case SDL_WINDOWEVENT_FOCUS_LOST:
+			diablo_focus_pause();
+			break;
+		case SDL_WINDOWEVENT_FOCUS_GAINED:
+			diablo_focus_unpause();
+			break;
+
 		default:
 			return FalseAvail("SDL_WINDOWEVENT", e.window.event);
 		}
@@ -579,11 +617,21 @@ bool FetchMessage(tagMSG *lpMsg)
 	return true;
 }
 
+bool FetchMessage(tagMSG *lpMsg)
+{
+	bool available = demo::IsRunning() ? demo::FetchMessage(lpMsg) : FetchMessage_Real(lpMsg);
+
+	if (available && demo::IsRecording())
+		demo::RecordMessage(lpMsg);
+
+	return available;
+}
+
 bool TranslateMessage(const tagMSG *lpMsg)
 {
 	if (lpMsg->message == DVL_WM_KEYDOWN) {
 		int key = lpMsg->wParam;
-		unsigned mod = (DWORD)lpMsg->lParam >> 16;
+		unsigned mod = (uint32_t)lpMsg->lParam >> 16;
 
 		bool shift = (mod & KMOD_SHIFT) != 0;
 		bool caps = (mod & KMOD_CAPS) != 0;
@@ -726,6 +774,11 @@ bool PostMessage(uint32_t type, int32_t wParam, int32_t lParam)
 	message_queue.push_back({ type, wParam, lParam });
 
 	return true;
+}
+
+void ClearMessageQueue()
+{
+	message_queue.clear();
 }
 
 } // namespace devilution

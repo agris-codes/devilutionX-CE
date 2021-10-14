@@ -15,7 +15,8 @@
 #include "cursor.h"
 #include "engine.h"
 #include "utils/display.h"
-#include "utils/sdl_ptrs.h"
+#include "utils/sdl_bilinear_scale.hpp"
+#include "utils/sdl_wrap.h"
 
 namespace devilution {
 namespace {
@@ -29,6 +30,27 @@ enum class HotpointPosition {
 	Center,
 };
 
+Size ScaledSize(Size size)
+{
+	if (renderer != nullptr) {
+		float scaleX;
+		float scaleY;
+		SDL_RenderGetScale(renderer, &scaleX, &scaleY);
+		size.width = static_cast<int>(size.width * scaleX);
+		size.height = static_cast<int>(size.height * scaleY);
+	}
+	return size;
+}
+
+bool IsCursorSizeAllowed(Size size)
+{
+	if (sgOptions.Graphics.nHardwareCursorMaxSize <= 0)
+		return true;
+	size = ScaledSize(size);
+	return size.width <= sgOptions.Graphics.nHardwareCursorMaxSize
+	    && size.height <= sgOptions.Graphics.nHardwareCursorMaxSize;
+}
+
 Point GetHotpointPosition(const SDL_Surface &surface, HotpointPosition position)
 {
 	switch (position) {
@@ -40,26 +62,30 @@ Point GetHotpointPosition(const SDL_Surface &surface, HotpointPosition position)
 	app_fatal("Unhandled enum value");
 }
 
+bool ShouldUseBilinearScaling()
+{
+	return sgOptions.Graphics.szScaleQuality[0] != '0';
+}
+
 bool SetHardwareCursor(SDL_Surface *surface, HotpointPosition hotpointPosition)
 {
-	float scaleX;
-	float scaleY;
-	if (renderer != nullptr) {
-		SDL_RenderGetScale(renderer, &scaleX, &scaleY);
-	}
-
 	SDLCursorUniquePtr newCursor;
-	if (renderer == nullptr || (scaleX == 1.0F && scaleY == 1.0F)) {
+	const Size size { surface->w, surface->h };
+	const Size scaledSize = ScaledSize(size);
+
+	if (size == scaledSize) {
 		const Point hotpoint = GetHotpointPosition(*surface, hotpointPosition);
 		newCursor = SDLCursorUniquePtr { SDL_CreateColorCursor(surface, hotpoint.x, hotpoint.y) };
 	} else {
 		// SDL does not support BlitScaled from 8-bit to RGBA.
 		SDLSurfaceUniquePtr converted { SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_ARGB8888, 0) };
 
-		const int scaledW = surface->w * scaleX; // NOLINT(bugprone-narrowing-conversions)
-		const int scaledH = surface->h * scaleY; // NOLINT(bugprone-narrowing-conversions)
-		SDLSurfaceUniquePtr scaledSurface { SDL_CreateRGBSurfaceWithFormat(0, scaledW, scaledH, 32, SDL_PIXELFORMAT_ARGB8888) };
-		SDL_BlitScaled(converted.get(), nullptr, scaledSurface.get(), nullptr);
+		SDLSurfaceUniquePtr scaledSurface = SDLWrap::CreateRGBSurfaceWithFormat(0, scaledSize.width, scaledSize.height, 32, SDL_PIXELFORMAT_ARGB8888);
+		if (ShouldUseBilinearScaling()) {
+			BilinearScale32(converted.get(), scaledSurface.get());
+		} else {
+			SDL_BlitScaled(converted.get(), nullptr, scaledSurface.get(), nullptr);
+		}
 		const Point hotpoint = GetHotpointPosition(*scaledSurface, hotpointPosition);
 		newCursor = SDLCursorUniquePtr { SDL_CreateColorCursor(scaledSurface.get(), hotpoint.x, hotpoint.y) };
 	}
@@ -73,14 +99,20 @@ bool SetHardwareCursor(SDL_Surface *surface, HotpointPosition hotpointPosition)
 bool SetHardwareCursorFromSprite(int pcurs)
 {
 	const bool isItem = IsItemSprite(pcurs);
+	if (isItem && !sgOptions.Graphics.bHardwareCursorForItems)
+		return false;
+
 	const int outlineWidth = isItem ? 1 : 0;
 
 	auto size = GetInvItemSize(pcurs);
 	size.width += 2 * outlineWidth;
 	size.height += 2 * outlineWidth;
 
-	auto out = CelOutputBuffer::Alloc(size.width, size.height);
-	SDL_SetSurfacePalette(out.surface, palette);
+	if (!IsCursorSizeAllowed(size))
+		return false;
+
+	OwnedSurface out { size };
+	SDL_SetSurfacePalette(out.surface, Palette.get());
 
 	// Transparent color must not be used in the sprite itself.
 	// Colors 1-127 are outside of the UI palette so are safe to use.
@@ -90,7 +122,6 @@ bool SetHardwareCursorFromSprite(int pcurs)
 	CelDrawCursor(out, { outlineWidth, size.height - outlineWidth }, pcurs);
 
 	const bool result = SetHardwareCursor(out.surface, isItem ? HotpointPosition::Center : HotpointPosition::TopLeft);
-	out.Free();
 	return result;
 }
 #endif
@@ -113,13 +144,18 @@ void SetHardwareCursor(CursorInfo cursorInfo)
 	case CursorType::UserInterface:
 		// ArtCursor is null while loading the game on the progress screen,
 		// called via palette fade from ShowProgress.
-		if (ArtCursor.surface != nullptr)
-			CurrentCursorInfo.SetEnabled(SetHardwareCursor(ArtCursor.surface.get(), HotpointPosition::TopLeft));
+		if (ArtCursor.surface != nullptr) {
+			CurrentCursorInfo.SetEnabled(
+			    IsCursorSizeAllowed(Size { ArtCursor.surface->w, ArtCursor.surface->h })
+			    && SetHardwareCursor(ArtCursor.surface.get(), HotpointPosition::TopLeft));
+		}
 		break;
 	case CursorType::Unknown:
 		CurrentCursorInfo.SetEnabled(false);
 		break;
 	}
+	if (!CurrentCursorInfo.Enabled())
+		SetHardwareCursorVisible(false);
 #endif
 }
 

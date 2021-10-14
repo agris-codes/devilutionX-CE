@@ -14,18 +14,43 @@
 #include "engine/cel_sprite.hpp"
 #include "engine/rectangle.hpp"
 #include "utils/stdcompat/optional.hpp"
+#include "utils/stdcompat/string_view.hpp"
 
 namespace devilution {
 
 enum GameFontTables : uint8_t {
-	GameFontSmall,
-	GameFontMed,
-	GameFontBig,
+	GameFont12,
+	GameFont24,
+	GameFont30,
+	GameFont42,
+	GameFont46,
+	FontSizeDialog,
+};
+
+enum text_color : uint8_t {
+	ColorUiGold,
+	ColorUiSilver,
+	ColorUiGoldDark,
+	ColorUiSilverDark,
+
+	ColorDialogWhite,
+	ColorDialogYellow,
+
+	ColorGold,
+	ColorBlack,
+
+	ColorWhite,
+	ColorWhitegold,
+	ColorRed,
+	ColorBlue,
+
+	ColorButtonface,
+	ColorButtonpushed,
 };
 
 extern std::optional<CelSprite> pSPentSpn2Cels;
 
-void InitText();
+void UnloadFonts(GameFontTables size, text_color color);
 
 /**
  * @brief Calculate pixel width of first line of text, respecting kerning
@@ -35,8 +60,8 @@ void InitText();
  * @param charactersInLine Receives characters read until newline or terminator
  * @return Line width in pixels
  */
-int GetLineWidth(const char *text, GameFontTables size = GameFontSmall, int spacing = 1, int *charactersInLine = nullptr);
-void WordWrapGameString(char *text, size_t width, GameFontTables size = GameFontSmall, int spacing = 1);
+int GetLineWidth(string_view text, GameFontTables size = GameFont12, int spacing = 1, int *charactersInLine = nullptr);
+[[nodiscard]] std::string WordWrapString(string_view text, size_t width, GameFontTables size = GameFont12, int spacing = 1);
 
 /**
  * @brief Draws a line of text within a clipping rectangle (positioned relative to the origin of the output buffer).
@@ -55,16 +80,14 @@ void WordWrapGameString(char *text, size_t width, GameFontTables size = GameFont
  * @param spacing Additional space to add between characters.
  *                This value may be adjusted if the flag UIS_FIT_SPACING is passed in the flags parameter.
  * @param lineHeight Allows overriding the default line height, useful for multi-line strings.
- * @param drawTextCursor Whether to draw an animated cursor sprite at the end of the text (default is to display nothing).
- * @return The number of characters rendered, including characters "drawn" outside the buffer.
-*/
-int DrawString(const CelOutputBuffer &out, const char *text, const Rectangle &rect, uint16_t flags = 0, int spacing = 1, int lineHeight = -1, bool drawTextCursor = false);
+ * @return The number of bytes rendered, including characters "drawn" outside the buffer.
+ */
+uint32_t DrawString(const Surface &out, string_view text, const Rectangle &rect, UiFlags flags = UiFlags::None, int spacing = 1, int lineHeight = -1);
 
 /**
  * @brief Draws a line of text at the given position relative to the origin of the output buffer.
  *
  * This method is provided as a convenience to pass through to DrawString(..., Rectangle, ...) when no explicit
-
  * clipping/wrapping is requested. Note that this will still wrap the rendered string if it would end up being drawn
  * beyond the right edge of the output buffer and clip it if it would extend beyond the bottom edge of the buffer.
  *
@@ -75,14 +98,13 @@ int DrawString(const CelOutputBuffer &out, const char *text, const Rectangle &re
  * @param spacing Additional space to add between characters.
  *                This value may be adjusted if the flag UIS_FIT_SPACING is passed in the flags parameter.
  * @param lineHeight Allows overriding the default line height, useful for multi-line strings.
- * @param drawTextCursor Whether to draw an animated cursor sprite at the end of the text (default is to display nothing).
- * @return The number of characters rendered (could be less than the string length if it wrapped past the bottom of the buffer).
-*/
-inline int DrawString(const CelOutputBuffer &out, const char *text, const Point &position, uint16_t flags = 0, int spacing = 1, int lineHeight = -1, bool drawTextCursor = false)
+ */
+inline void DrawString(const Surface &out, string_view text, const Point &position, UiFlags flags = UiFlags::None, int spacing = 1, int lineHeight = -1)
 {
-	return DrawString(out, text, { position.x, position.y, out.w() - position.x, 0 }, flags, spacing, lineHeight, drawTextCursor);
+	DrawString(out, text, { position, { out.w() - position.x, 0 } }, flags, spacing, lineHeight);
 }
 
-int PentSpn2Spin();
+uint8_t PentSpn2Spin();
+void UnloadFonts();
 
 } // namespace devilution

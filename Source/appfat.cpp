@@ -11,6 +11,7 @@
 #include "diablo.h"
 #include "storm/storm.h"
 #include "utils/language.h"
+#include "utils/sdl_thread.h"
 #include "utils/ui_fwd.h"
 
 namespace devilution {
@@ -41,11 +42,11 @@ void MsgBox(const char *pszFmt, va_list va)
  */
 void FreeDlg()
 {
-	if (Terminating && CleanupThreadId != SDL_GetThreadID(nullptr))
+	if (Terminating && CleanupThreadId != this_sdl_thread::get_id())
 		SDL_Delay(20000);
 
 	Terminating = true;
-	CleanupThreadId = SDL_GetThreadID(nullptr);
+	CleanupThreadId = this_sdl_thread::get_id();
 
 	if (gbIsMultiplayer) {
 		if (SNetLeaveGame(3))
@@ -57,11 +58,6 @@ void FreeDlg()
 
 } // namespace
 
-/**
- * @brief Terminates the game and displays an error message box.
- * @param pszFmt Optional error message.
- * @param ... (see printf)
- */
 void app_fatal(const char *pszFmt, ...)
 {
 	va_list va;
@@ -77,11 +73,6 @@ void app_fatal(const char *pszFmt, ...)
 	diablo_quit(1);
 }
 
-/**
- * @brief Displays a warning message box based on the given formatted error message.
- * @param pszFmt Error message format
- * @param ... Additional parameters for message format
- */
 void DrawDlg(const char *pszFmt, ...)
 {
 	char text[256];
@@ -95,21 +86,12 @@ void DrawDlg(const char *pszFmt, ...)
 }
 
 #ifdef _DEBUG
-/**
- * @brief Show an error and exit the application.
- * @param nLineNo The line number of the assertion
- * @param pszFile File name where the assertion is located
- * @param pszFail Fail message
- */
 void assert_fail(int nLineNo, const char *pszFile, const char *pszFail)
 {
 	app_fatal("assertion failed (%s:%i)\n%s", pszFile, nLineNo, pszFail);
 }
 #endif
 
-/**
- * @brief Terminates the game and displays an error dialog box based on the given dialog_id.
- */
 void ErrDlg(const char *title, const char *error, const char *logFilePath, int logLineNr)
 {
 	char text[1024];
@@ -122,9 +104,6 @@ void ErrDlg(const char *title, const char *error, const char *logFilePath, int l
 	app_fatal(nullptr);
 }
 
-/**
- * @brief Terminates the game with an insert CD error dialog.
- */
 void InsertCDDlg()
 {
 	char text[1024];
@@ -141,9 +120,6 @@ void InsertCDDlg()
 	app_fatal(nullptr);
 }
 
-/**
- * @brief Terminates the game with a read-only directory error dialog.
- */
 void DirErrorDlg(const char *error)
 {
 	char text[1024];

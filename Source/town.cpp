@@ -23,7 +23,7 @@ namespace {
  * @param xi upper left destination
  * @param yy upper left destination
  */
-void T_FillSector(const char *path, int xi, int yy)
+void FillSector(const char *path, int xi, int yy)
 {
 	auto dunData = LoadFileInMem<uint16_t>(path);
 
@@ -66,7 +66,7 @@ void T_FillSector(const char *path, int xi, int yy)
  * @param yy upper left destination
  * @param t tile id
  */
-void T_FillTile(int xx, int yy, int t)
+void FillTile(int xx, int yy, int t)
 {
 	MegaTile mega = pMegaTiles[t - 1];
 
@@ -151,7 +151,7 @@ void TownCloseGrave()
 /**
  * @brief Initialize all of the levels data
  */
-void T_Pass3()
+void DrlgTPass3()
 {
 	for (int yy = 0; yy < MAXDUNY; yy += 2) {
 		for (int xx = 0; xx < MAXDUNX; xx += 2) {
@@ -162,50 +162,58 @@ void T_Pass3()
 		}
 	}
 
-	T_FillSector("Levels\\TownData\\Sector1s.DUN", 46, 46);
-	T_FillSector("Levels\\TownData\\Sector2s.DUN", 46, 0);
-	T_FillSector("Levels\\TownData\\Sector3s.DUN", 0, 46);
-	T_FillSector("Levels\\TownData\\Sector4s.DUN", 0, 0);
+	FillSector("Levels\\TownData\\Sector1s.DUN", 46, 46);
+	FillSector("Levels\\TownData\\Sector2s.DUN", 46, 0);
+	FillSector("Levels\\TownData\\Sector3s.DUN", 0, 46);
+	FillSector("Levels\\TownData\\Sector4s.DUN", 0, 0);
 
-	if (gbIsSpawn || !gbIsMultiplayer) {
-		if (gbIsSpawn || ((plr[myplr].pTownWarps & 1) == 0 && (!gbIsHellfire || plr[myplr]._pLevel < 10))) {
-			T_FillTile(48, 20, 320);
-		}
-		if (gbIsSpawn || ((plr[myplr].pTownWarps & 2) == 0 && (!gbIsHellfire || plr[myplr]._pLevel < 15))) {
-			T_FillTile(16, 68, 332);
-			T_FillTile(16, 70, 331);
-		}
-		if (gbIsSpawn || ((plr[myplr].pTownWarps & 4) == 0 && (!gbIsHellfire || plr[myplr]._pLevel < 20))) {
-			for (int x = 36; x < 46; x++) {
-				T_FillTile(x, 78, GenerateRnd(4) + 1);
-			}
+	if (!IsWarpOpen(DTYPE_CATACOMBS)) {
+		FillTile(48, 20, 320);
+	}
+	if (!IsWarpOpen(DTYPE_CAVES)) {
+		FillTile(16, 68, 332);
+		FillTile(16, 70, 331);
+	}
+	if (!IsWarpOpen(DTYPE_HELL)) {
+		for (int x = 36; x < 46; x++) {
+			FillTile(x, 78, GenerateRnd(4) + 1);
 		}
 	}
 	if (gbIsHellfire) {
-		if (quests[Q_FARMER]._qactive == QUEST_DONE || quests[Q_FARMER]._qactive == QUEST_HIVE_DONE
-		    || quests[Q_JERSEY]._qactive == QUEST_DONE || quests[Q_JERSEY]._qactive == QUEST_HIVE_DONE) {
+		if (IsWarpOpen(DTYPE_NEST)) {
 			TownOpenHive();
 		} else {
 			TownCloseHive();
 		}
-		if (quests[Q_GRAVE]._qactive == QUEST_DONE || plr[myplr]._pLvlVisited[21])
+		if (IsWarpOpen(DTYPE_CRYPT))
 			TownOpenGrave();
 		else
 			TownCloseGrave();
 	}
 
-	if (quests[Q_PWATER]._qactive != QUEST_DONE && quests[Q_PWATER]._qactive != QUEST_NOTAVAIL) {
-		T_FillTile(60, 70, 342);
+	if (Quests[Q_PWATER]._qactive != QUEST_DONE && Quests[Q_PWATER]._qactive != QUEST_NOTAVAIL) {
+		FillTile(60, 70, 342);
 	} else {
-		T_FillTile(60, 70, 71);
+		FillTile(60, 70, 71);
 	}
 }
 
 } // namespace
 
-/**
- * @brief Update the map to show the open hive
- */
+bool OpensHive(Point position)
+{
+	int yp = position.y;
+	int xp = position.x;
+	return xp >= 79 && xp <= 82 && yp >= 61 && yp <= 64;
+}
+
+bool OpensGrave(Point position)
+{
+	int yp = position.y;
+	int xp = position.x;
+	return xp >= 35 && xp <= 38 && yp >= 20 && yp <= 24;
+}
+
 void TownOpenHive()
 {
 	dPiece[78][60] = 0x48a;
@@ -257,9 +265,6 @@ void TownOpenHive()
 	SetDungeonMicros();
 }
 
-/**
- * @brief Update the map to show the open grave
- */
 void TownOpenGrave()
 {
 	dPiece[36][21] = 0x533;
@@ -275,49 +280,36 @@ void TownOpenGrave()
 	SetDungeonMicros();
 }
 
-/**
- * @brief Initialize town level
- * @param entry Methode of entry
- */
 void CreateTown(lvl_entry entry)
 {
-	dminx = 10;
-	dminy = 10;
-	dmaxx = 84;
-	dmaxy = 84;
+	dminPosition = { 10, 10 };
+	dmaxPosition = { 84, 84 };
 	DRLG_InitTrans();
 	DRLG_Init_Globals();
 
 	if (entry == ENTRY_MAIN) { // New game
-		ViewX = 75;
-		ViewY = 68;
+		ViewPosition = { 75, 68 };
 	} else if (entry == ENTRY_PREV) { // Cathedral
-		ViewX = 25;
-		ViewY = 31;
+		ViewPosition = { 25, 31 };
 	} else if (entry == ENTRY_TWARPUP) {
 		if (TWarpFrom == 5) {
-			ViewX = 49;
-			ViewY = 22;
+			ViewPosition = { 49, 22 };
 		}
 		if (TWarpFrom == 9) {
-			ViewX = 18;
-			ViewY = 69;
+			ViewPosition = { 18, 69 };
 		}
 		if (TWarpFrom == 13) {
-			ViewX = 41;
-			ViewY = 81;
+			ViewPosition = { 41, 81 };
 		}
 		if (TWarpFrom == 21) {
-			ViewX = 36;
-			ViewY = 25;
+			ViewPosition = { 36, 25 };
 		}
 		if (TWarpFrom == 17) {
-			ViewX = 79;
-			ViewY = 62;
+			ViewPosition = { 79, 62 };
 		}
 	}
 
-	T_Pass3();
+	DrlgTPass3();
 	memset(dFlags, 0, sizeof(dFlags));
 	memset(dLight, 0, sizeof(dLight));
 	memset(dFlags, 0, sizeof(dFlags));

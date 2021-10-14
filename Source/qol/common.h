@@ -9,7 +9,7 @@
 
 namespace devilution {
 
-struct CelOutputBuffer;
+struct Surface;
 
 /**
  * @brief Prints integer into buffer, using ',' as thousands separator.
@@ -17,7 +17,7 @@ struct CelOutputBuffer;
  * @param n Number to print
  * @return Address of first character after printed number
  */
-char *PrintWithSeparator(char *out, long long n);
+char *PrintWithSeparator(char *out, int n);
 
 void FreeQol();
 void InitQol();

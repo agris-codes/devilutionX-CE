@@ -17,7 +17,7 @@ extern bool gbValidSaveFile;
 class PFileScopedArchiveWriter {
 public:
 	// Opens the player save file for writing
-	PFileScopedArchiveWriter(bool clear_tables = !gbIsMultiplayer);
+	PFileScopedArchiveWriter(bool clearTables = !gbIsMultiplayer);
 
 	// Finishes writing and closes the player save file.
 	~PFileScopedArchiveWriter();
@@ -28,19 +28,18 @@ private:
 };
 
 const char *pfile_get_password();
-void pfile_write_hero(bool write_game_data = false, bool clear_tables = !gbIsMultiplayer);
-bool pfile_ui_set_hero_infos(bool (*ui_add_hero_info)(_uiheroinfo *));
-bool pfile_archive_contains_game(HANDLE hsArchive);
-void pfile_ui_set_class_stats(unsigned int player_class_nr, _uidefaultstats *class_stats);
+void pfile_write_hero(bool writeGameData = false, bool clearTables = !gbIsMultiplayer);
+bool pfile_ui_set_hero_infos(bool (*uiAddHeroInfo)(_uiheroinfo *));
+void pfile_ui_set_class_stats(unsigned int playerClass, _uidefaultstats *classStats);
+uint32_t pfile_ui_get_first_unused_save_num();
 bool pfile_ui_save_create(_uiheroinfo *heroinfo);
-bool pfile_get_file_name(uint8_t lvl, char *dst);
-bool pfile_delete_save(_uiheroinfo *hero_info);
-void pfile_read_player_from_save(char name[16], int playerId);
+bool pfile_delete_save(_uiheroinfo *heroInfo);
+void pfile_read_player_from_save(uint32_t saveNum, Player &player);
 bool LevelFileExists();
 void GetTempLevelNames(char *szTemp);
 void GetPermLevelNames(char *szPerm);
 void pfile_remove_temp_files();
 std::unique_ptr<byte[]> pfile_read(const char *pszName, size_t *pdwLen);
-void pfile_update(bool force_save);
+void pfile_update(bool forceSave);
 
 } // namespace devilution

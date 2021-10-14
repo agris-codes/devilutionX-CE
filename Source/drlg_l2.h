@@ -22,12 +22,10 @@ struct ROOMNODE {
 	int nRoomy1;
 	int nRoomx2;
 	int nRoomy2;
-	int nRoomDest;
 };
 
 extern BYTE predungeon[DMAXX][DMAXY];
 
-void InitDungeon();
 void LoadL2Dungeon(const char *path, int vx, int vy);
 void LoadPreL2Dungeon(const char *path);
 void CreateL2Dungeon(uint32_t rseed, lvl_entry entry);

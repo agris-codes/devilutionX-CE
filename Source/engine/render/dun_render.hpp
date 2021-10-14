@@ -12,10 +12,9 @@ namespace devilution {
 /**
  * @brief Blit current world CEL to the given buffer
  * @param out Target buffer
- * @param x Target buffer coordinate
- * @param y Target buffer coordinate
+ * @param position Target buffer coordinates
  */
-void RenderTile(const CelOutputBuffer &out, int x, int y);
+void RenderTile(const Surface &out, Point position);
 
 /**
  * @brief Render a black 64x31 tile ◆
@@ -23,6 +22,6 @@ void RenderTile(const CelOutputBuffer &out, int x, int y);
  * @param sx Target buffer coordinate (left corner of the tile)
  * @param sy Target buffer coordinate (bottom corner of the tile)
  */
-void world_draw_black_tile(const CelOutputBuffer &out, int sx, int sy);
+void world_draw_black_tile(const Surface &out, int sx, int sy);
 
 } // namespace devilution

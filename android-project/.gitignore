@@ -12,3 +12,5 @@ build/
 /local.properties
 
 /app/src/main/assets/CharisSILB.ttf
+/app/src/main/assets/*.gmo
+/app/src/main/assets/ui_art/*

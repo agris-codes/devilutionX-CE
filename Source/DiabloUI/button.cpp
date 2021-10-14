@@ -1,7 +1,8 @@
 #include "DiabloUI/art_draw.h"
 #include "DiabloUI/button.h"
+#include "DiabloUI/diabloui.h"
 #include "DiabloUI/errorart.h"
-#include "DiabloUI/text_draw.h"
+#include "engine/render/text_render.hpp"
 #include "utils/display.h"
 
 namespace devilution {
@@ -10,7 +11,7 @@ Art SmlButton;
 
 void LoadSmlButtonArt()
 {
-	LoadArt(&SmlButton, btnData, SML_BUTTON_WIDTH, SML_BUTTON_HEIGHT * 2, 2);
+	LoadArt(&SmlButton, ButtonData, SML_BUTTON_WIDTH, SML_BUTTON_HEIGHT * 2, 2);
 }
 
 void RenderButton(UiButton *button)
@@ -21,16 +22,14 @@ void RenderButton(UiButton *button)
 	} else {
 		frame = UiButton::DEFAULT;
 	}
-	DrawArt(button->m_rect.x, button->m_rect.y, button->m_art, frame, button->m_rect.w, button->m_rect.h);
+	DrawArt({ button->m_rect.x, button->m_rect.y }, button->m_art, frame, button->m_rect.w, button->m_rect.h);
 
-	SDL_Rect textRect = button->m_rect;
+	Rectangle textRect { { button->m_rect.x, button->m_rect.y }, { button->m_rect.w, button->m_rect.h } };
 	if (!button->m_pressed)
-		--textRect.y;
+		--textRect.position.y;
 
-	SDL_Color color1 = { 243, 243, 243, 0 };
-	SDL_Color color2 = { 0, 0, 0, 0 };
-	DrawTTF(button->m_text, textRect, UIS_CENTER,
-	    color1, color2, button->m_render_cache);
+	const Surface &out = Surface(DiabloUiSurface());
+	DrawString(out, button->m_text, textRect, UiFlags::AlignCenter | UiFlags::FontSizeDialog | UiFlags::ColorDialogWhite, 0);
 }
 
 bool HandleMouseEventButton(const SDL_Event &event, UiButton *button)

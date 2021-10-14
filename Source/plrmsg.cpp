@@ -14,29 +14,41 @@
 
 namespace devilution {
 
+namespace {
+
 #define PMSG_COUNT 8
 
-static BYTE plr_msg_slot;
+uint8_t plr_msg_slot;
 _plrmsg plr_msgs[PMSG_COUNT];
 
 /** Maps from player_num to text color, as used in chat messages. */
-const uint16_t text_color_from_player_num[MAX_PLRS + 1] = { UIS_SILVER, UIS_SILVER, UIS_SILVER, UIS_SILVER, UIS_GOLD };
+const UiFlags TextColorFromPlayerId[MAX_PLRS + 1] = { UiFlags::ColorWhite, UiFlags::ColorWhite, UiFlags::ColorWhite, UiFlags::ColorWhite, UiFlags::ColorWhitegold };
+
+void PrintChatMessage(const Surface &out, int x, int y, int width, char *text, UiFlags style)
+{
+	int length = strlen(text);
+	for (int i = 0; i < length; i++) {
+		if (text[i] == '\n')
+			text[i] = ' ';
+	}
+	DrawString(out, WordWrapString(text, width), { { x, y }, { width, 0 } }, style, 1, 10);
+}
+
+} // namespace
 
 void plrmsg_delay(bool delay)
 {
-	int i;
-	_plrmsg *pMsg;
-	static DWORD plrmsg_ticks;
+	static uint32_t plrmsgTicks;
 
 	if (delay) {
-		plrmsg_ticks = -SDL_GetTicks();
+		plrmsgTicks = -SDL_GetTicks();
 		return;
 	}
 
-	plrmsg_ticks += SDL_GetTicks();
-	pMsg = plr_msgs;
-	for (i = 0; i < PMSG_COUNT; i++, pMsg++)
-		pMsg->time += plrmsg_ticks;
+	plrmsgTicks += SDL_GetTicks();
+	_plrmsg *pMsg = plr_msgs;
+	for (int i = 0; i < PMSG_COUNT; i++, pMsg++)
+		pMsg->time += plrmsgTicks;
 }
 
 void ErrorPlrMsg(const char *pszMsg)
@@ -70,18 +82,18 @@ void SendPlrMsg(int pnum, const char *pszStr)
 	plr_msg_slot = (plr_msg_slot + 1) & (PMSG_COUNT - 1);
 	pMsg->player = pnum;
 	pMsg->time = SDL_GetTicks();
-	assert(strlen(plr[pnum]._pName) < PLR_NAME_LEN);
+	auto &player = Players[pnum];
+	assert(strlen(player._pName) < PLR_NAME_LEN);
 	assert(strlen(pszStr) < MAX_SEND_STR_LEN);
-	strcpy(pMsg->str, fmt::format(_(/* TRANSLATORS: Shown if player presses "v" button. {:s} is player name, {:d} is level, {:s} is location */ "{:s} (lvl {:d}): {:s}"), plr[pnum]._pName, plr[pnum]._pLevel, pszStr).c_str());
+	strcpy(pMsg->str, fmt::format(_(/* TRANSLATORS: Shown if player presses "v" button. {:s} is player name, {:d} is level, {:s} is location */ "{:s} (lvl {:d}): {:s}"), player._pName, player._pLevel, pszStr).c_str());
 }
 
 void ClearPlrMsg()
 {
-	int i;
 	_plrmsg *pMsg = plr_msgs;
-	DWORD tick = SDL_GetTicks();
+	uint32_t tick = SDL_GetTicks();
 
-	for (i = 0; i < PMSG_COUNT; i++, pMsg++) {
+	for (int i = 0; i < PMSG_COUNT; i++, pMsg++) {
 		if ((int)(tick - pMsg->time) > 10000)
 			pMsg->str[0] = '\0';
 	}
@@ -93,26 +105,14 @@ void InitPlrMsg()
 	plr_msg_slot = 0;
 }
 
-static void PrintPlrMsg(const CelOutputBuffer &out, int x, int y, int width, char *text, uint16_t style)
+void DrawPlrMsg(const Surface &out)
 {
-	int length = strlen(text);
-	for (int i = 0; i < length; i++) {
-		if (text[i] == '\n')
-			text[i] = ' ';
-	}
-	WordWrapGameString(text, width);
-	DrawString(out, text, { x, y, width, 0 }, style, 1, 10);
-}
-
-void DrawPlrMsg(const CelOutputBuffer &out)
-{
-	int i;
 	DWORD x = 10;
-	DWORD y = 70;
+	DWORD y = 58;
 	DWORD width = gnScreenWidth - 20;
 	_plrmsg *pMsg;
 
-	if (chrflag || questlog) {
+	if (chrflag || QuestLogIsOpen) {
 		x += SPANEL_WIDTH;
 		width -= SPANEL_WIDTH;
 	}
@@ -123,9 +123,9 @@ void DrawPlrMsg(const CelOutputBuffer &out)
 		return;
 
 	pMsg = plr_msgs;
-	for (i = 0; i < PMSG_COUNT; i++) {
+	for (int i = 0; i < PMSG_COUNT; i++) {
 		if (pMsg->str[0] != '\0')
-			PrintPlrMsg(out, x, y, width, pMsg->str, text_color_from_player_num[pMsg->player]);
+			PrintChatMessage(out, x, y, width, pMsg->str, TextColorFromPlayerId[pMsg->player]);
 		pMsg++;
 		y += 35;
 	}

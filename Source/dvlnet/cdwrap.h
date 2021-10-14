@@ -24,21 +24,23 @@ public:
 	virtual int create(std::string addrstr, std::string passwd);
 	virtual int join(std::string addrstr, std::string passwd);
 	virtual bool SNetReceiveMessage(int *sender, void **data, uint32_t *size);
-	virtual bool SNetSendMessage(int dest, void *data,
-	    unsigned int size);
-	virtual bool SNetReceiveTurns(char **data, unsigned int *size,
-	    DWORD *status);
+	virtual bool SNetSendMessage(int dest, void *data, unsigned int size);
+	virtual bool SNetReceiveTurns(char **data, size_t *size, uint32_t *status);
 	virtual bool SNetSendTurn(char *data, unsigned int size);
 	virtual void SNetGetProviderCaps(struct _SNETCAPS *caps);
 	virtual bool SNetRegisterEventHandler(event_type evtype,
 	    SEVTHANDLER func);
 	virtual bool SNetUnregisterEventHandler(event_type evtype);
 	virtual bool SNetLeaveGame(int type);
-	virtual bool SNetDropPlayer(int playerid, DWORD flags);
-	virtual bool SNetGetOwnerTurnsWaiting(DWORD *turns);
-	virtual bool SNetGetTurnsInTransit(DWORD *turns);
+	virtual bool SNetDropPlayer(int playerid, uint32_t flags);
+	virtual bool SNetGetOwnerTurnsWaiting(uint32_t *turns);
+	virtual bool SNetGetTurnsInTransit(uint32_t *turns);
 	virtual void setup_gameinfo(buffer_t info);
 	virtual std::string make_default_gamename();
+	virtual void send_info_request();
+	virtual void clear_gamelist();
+	virtual std::vector<std::string> get_gamelist();
+	virtual void setup_password(std::string pw);
 
 	cdwrap();
 	virtual ~cdwrap() = default;
@@ -96,7 +98,7 @@ bool cdwrap<T>::SNetSendMessage(int playerID, void *data, unsigned int size)
 }
 
 template <class T>
-bool cdwrap<T>::SNetReceiveTurns(char **data, unsigned int *size, DWORD *status)
+bool cdwrap<T>::SNetReceiveTurns(char **data, size_t *size, uint32_t *status)
 {
 	return dvlnet_wrap->SNetReceiveTurns(data, size, status);
 }
@@ -140,19 +142,19 @@ bool cdwrap<T>::SNetLeaveGame(int type)
 }
 
 template <class T>
-bool cdwrap<T>::SNetDropPlayer(int playerid, DWORD flags)
+bool cdwrap<T>::SNetDropPlayer(int playerid, uint32_t flags)
 {
 	return dvlnet_wrap->SNetDropPlayer(playerid, flags);
 }
 
 template <class T>
-bool cdwrap<T>::SNetGetOwnerTurnsWaiting(DWORD *turns)
+bool cdwrap<T>::SNetGetOwnerTurnsWaiting(uint32_t *turns)
 {
 	return dvlnet_wrap->SNetGetOwnerTurnsWaiting(turns);
 }
 
 template <class T>
-bool cdwrap<T>::SNetGetTurnsInTransit(DWORD *turns)
+bool cdwrap<T>::SNetGetTurnsInTransit(uint32_t *turns)
 {
 	return dvlnet_wrap->SNetGetTurnsInTransit(turns);
 }
@@ -161,6 +163,30 @@ template <class T>
 std::string cdwrap<T>::make_default_gamename()
 {
 	return dvlnet_wrap->make_default_gamename();
+}
+
+template <class T>
+void cdwrap<T>::send_info_request()
+{
+	dvlnet_wrap->send_info_request();
+}
+
+template <class T>
+void cdwrap<T>::clear_gamelist()
+{
+	dvlnet_wrap->clear_gamelist();
+}
+
+template <class T>
+std::vector<std::string> cdwrap<T>::get_gamelist()
+{
+	return dvlnet_wrap->get_gamelist();
+}
+
+template <class T>
+void cdwrap<T>::setup_password(std::string pw)
+{
+	return dvlnet_wrap->setup_password(pw);
 }
 
 } // namespace net

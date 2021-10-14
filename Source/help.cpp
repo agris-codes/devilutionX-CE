@@ -16,8 +16,11 @@
 
 namespace devilution {
 
+bool HelpFlag;
+
+namespace {
+
 unsigned int SkipLines;
-bool helpflag;
 
 const char *const HelpText[] = {
 	N_("$Keyboard Shortcuts:"),
@@ -63,7 +66,7 @@ const char *const HelpText[] = {
 	   "the corresponding number or right-clicking on the item."),
 	"",
 	N_("$Gold"),
-	N_("You can select a specific amount of gold to drop by"
+	N_("You can select a specific amount of gold to drop by "
 	   "right-clicking on a pile of gold in your inventory."),
 	"",
 	N_("$Skills & Spells:"),
@@ -75,13 +78,13 @@ const char *const HelpText[] = {
 	"",
 	N_("$Using the Speedbook for Spells"),
 	N_("Left-clicking on the 'readied spell' button will open the 'Speedbook' "
-	   "which allows you to select a skill or spell for immediate use.  "
+	   "which allows you to select a skill or spell for immediate use. "
 	   "To use a readied skill or spell, simply right-click in the main play "
 	   "area."),
 	N_("Shift + Left-clicking on the 'select current spell' button will clear the readied spell"),
 	"",
 	N_("$Setting Spell Hotkeys"),
-	N_("You can assign up to four Hotkeys for skills, spells or scrolls.  "
+	N_("You can assign up to four Hotkeys for skills, spells or scrolls. "
 	   "Start by opening the 'speedbook' as described in the section above. "
 	   "Press the F5, F6, F7 or F8 keys after highlighting the spell you "
 	   "wish to assign."),
@@ -93,16 +96,17 @@ const char *const HelpText[] = {
 
 std::vector<std::string> HelpTextLines;
 
+} // namespace
+
 void InitHelp()
 {
-	helpflag = false;
-	char tempstr[512];
+	HelpFlag = false;
+	char tempString[1024];
 
 	for (const auto *text : HelpText) {
-		strcpy(tempstr, _(text));
+		strcpy(tempString, _(text));
 
-		WordWrapGameString(tempstr, 577);
-		const string_view paragraph = tempstr;
+		const std::string paragraph = WordWrapString(tempString, 577);
 
 		size_t previous = 0;
 		while (true) {
@@ -115,7 +119,7 @@ void InitHelp()
 	}
 }
 
-void DrawHelp(const CelOutputBuffer &out)
+void DrawHelp(const Surface &out)
 {
 	DrawSTextHelp();
 	DrawQTextBack(out);
@@ -125,36 +129,36 @@ void DrawHelp(const CelOutputBuffer &out)
 		title = gbIsSpawn ? _("Shareware Hellfire Help") : _("Hellfire Help");
 	else
 		title = gbIsSpawn ? _("Shareware Diablo Help") : _("Diablo Help");
-	PrintSString(out, 0, 2, title, UIS_GOLD | UIS_CENTER);
+	PrintSString(out, 0, 2, title, UiFlags::ColorWhitegold | UiFlags::AlignCenter);
 
 	DrawSLine(out, 5);
 
 	const int sx = PANEL_X + 32;
 	const int sy = UI_OFFSET_Y + 51;
 
-	for (int i = 7; i < 22; i++) {
-		const char *line = HelpTextLines[i - 7 + SkipLines].c_str();
+	for (int i = 6; i < 21; i++) {
+		const char *line = HelpTextLines[i - 6 + SkipLines].c_str();
 		if (line[0] == '\0') {
 			continue;
 		}
 
 		int offset = 0;
-		uint16_t style = UIS_SILVER;
+		UiFlags style = UiFlags::ColorWhite;
 		if (line[0] == '$') {
 			offset = 1;
-			style = UIS_RED;
+			style = UiFlags::ColorRed;
 		}
 
-		DrawString(out, &line[offset], { sx, sy + i * 12, 577, 12 }, style);
+		DrawString(out, &line[offset], { { sx, sy + i * 12 }, { 577, 12 } }, style);
 	}
 
-	PrintSString(out, 0, 23, _("Press ESC to end or the arrow keys to scroll."), UIS_GOLD | UIS_CENTER);
+	PrintSString(out, 0, 23, _("Press ESC to end or the arrow keys to scroll."), UiFlags::ColorWhitegold | UiFlags::AlignCenter);
 }
 
 void DisplayHelp()
 {
 	SkipLines = 0;
-	helpflag = true;
+	HelpFlag = true;
 }
 
 void HelpScrollUp()

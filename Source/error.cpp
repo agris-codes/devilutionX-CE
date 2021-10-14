@@ -3,6 +3,9 @@
  *
  * Implementation of in-game message functions.
  */
+
+#include <deque>
+
 #include "error.h"
 
 #include "control.h"
@@ -13,10 +16,40 @@
 
 namespace devilution {
 
-diablo_message msgtable[MAX_SEND_STR_LEN];
-DWORD msgdelay;
-diablo_message msgflag;
-uint8_t msgcnt;
+namespace {
+
+std::deque<std::string> DiabloMessages;
+std::vector<std::string> TextLines;
+uint32_t msgdelay;
+int ErrorWindowHeight = 54;
+const int LineHeight = 12;
+const int LineWidth = 418;
+
+void InitNextLines()
+{
+	msgdelay = SDL_GetTicks();
+	auto message = DiabloMessages.front();
+
+	TextLines.clear();
+
+	char tempstr[1536]; // Longest test is about 768 chars * 2 for unicode
+	strcpy(tempstr, message.data());
+
+	const std::string paragraphs = WordWrapString(tempstr, LineWidth, GameFont12, 1);
+
+	size_t previous = 0;
+	while (true) {
+		size_t next = paragraphs.find('\n', previous);
+		TextLines.emplace_back(paragraphs.substr(previous, next));
+		if (next == std::string::npos)
+			break;
+		previous = next + 1;
+	}
+
+	ErrorWindowHeight = std::max(54, static_cast<int>((TextLines.size() * LineHeight) + 42));
+}
+
+} // namespace
 
 /** Maps from error_id to error message. */
 const char *const MsgStrings[] = {
@@ -60,9 +93,9 @@ const char *const MsgStrings[] = {
 	N_(/* TRANSLATORS: Shrine Text. Keep atmospheric. :) */ "Mysteries are revealed in the light of reason"),
 	N_(/* TRANSLATORS: Shrine Text. Keep atmospheric. :) */ "Those who are last may yet be first"),
 	N_(/* TRANSLATORS: Shrine Text. Keep atmospheric. :) */ "Generosity brings its own rewards"),
-	N_(/* TRANSLATORS: Shrine Text. Keep atmospheric. :) */ "You must be at least level 8 to use this."),
-	N_(/* TRANSLATORS: Shrine Text. Keep atmospheric. :) */ "You must be at least level 13 to use this."),
-	N_(/* TRANSLATORS: Shrine Text. Keep atmospheric. :) */ "You must be at least level 17 to use this."),
+	N_("You must be at least level 8 to use this."),
+	N_("You must be at least level 13 to use this."),
+	N_("You must be at least level 17 to use this."),
 	N_(/* TRANSLATORS: Shrine Text. Keep atmospheric. :) */ "Arcane knowledge gained!"),
 	N_(/* TRANSLATORS: Shrine Text. Keep atmospheric. :) */ "That which does not kill you..."),
 	N_(/* TRANSLATORS: Shrine Text. Keep atmospheric. :) */ "Knowledge is power."),
@@ -79,70 +112,76 @@ const char *const MsgStrings[] = {
 
 void InitDiabloMsg(diablo_message e)
 {
-	int i;
+	std::string msg = _(MsgStrings[e]);
+	InitDiabloMsg(msg);
+}
 
-	if (msgcnt >= sizeof(msgtable))
+void InitDiabloMsg(std::string msg)
+{
+	if (DiabloMessages.size() >= MAX_SEND_STR_LEN)
 		return;
 
-	for (i = 0; i < msgcnt; i++) {
-		if (msgtable[i] == e)
-			return;
-	}
+	if (std::find(DiabloMessages.begin(), DiabloMessages.end(), msg) != DiabloMessages.end())
+		return;
 
-	msgtable[msgcnt] = e; // BUGFIX: missing out-of-bounds check (fixed)
-	msgcnt++;
+	DiabloMessages.push_back(msg);
+	if (DiabloMessages.size() == 1)
+		InitNextLines();
+}
 
-	msgflag = msgtable[0];
-	msgdelay = SDL_GetTicks();
+bool IsDiabloMsgAvailable()
+{
+	return !DiabloMessages.empty();
+}
+
+void CancelCurrentDiabloMsg()
+{
+	msgdelay = 0;
 }
 
 void ClrDiabloMsg()
 {
-	for (auto &msg : msgtable)
-		msg = EMSG_NONE;
-
-	msgflag = EMSG_NONE;
-	msgcnt = 0;
+	DiabloMessages.clear();
 }
 
-#define DIALOG_Y ((gnScreenHeight - PANEL_HEIGHT) / 2 - 18)
-
-void DrawDiabloMsg(const CelOutputBuffer &out)
+void DrawDiabloMsg(const Surface &out)
 {
-	CelDrawTo(out, { PANEL_X + 101, DIALOG_Y }, *pSTextSlidCels, 1);
-	CelDrawTo(out, { PANEL_X + 527, DIALOG_Y }, *pSTextSlidCels, 4);
-	CelDrawTo(out, { PANEL_X + 101, DIALOG_Y + 48 }, *pSTextSlidCels, 2);
-	CelDrawTo(out, { PANEL_X + 527, DIALOG_Y + 48 }, *pSTextSlidCels, 3);
+	int dialogStartY = ((gnScreenHeight - PANEL_HEIGHT) / 2) - (ErrorWindowHeight / 2) + 9;
+
+	CelDrawTo(out, { PANEL_X + 101, dialogStartY }, *pSTextSlidCels, 1);
+	CelDrawTo(out, { PANEL_X + 527, dialogStartY }, *pSTextSlidCels, 4);
+	CelDrawTo(out, { PANEL_X + 101, dialogStartY + ErrorWindowHeight - 6 }, *pSTextSlidCels, 2);
+	CelDrawTo(out, { PANEL_X + 527, dialogStartY + ErrorWindowHeight - 6 }, *pSTextSlidCels, 3);
 
 	int sx = PANEL_X + 109;
 	for (int i = 0; i < 35; i++) {
-		CelDrawTo(out, { sx, DIALOG_Y }, *pSTextSlidCels, 5);
-		CelDrawTo(out, { sx, DIALOG_Y + 48 }, *pSTextSlidCels, 7);
+		CelDrawTo(out, { sx, dialogStartY }, *pSTextSlidCels, 5);
+		CelDrawTo(out, { sx, dialogStartY + ErrorWindowHeight - 6 }, *pSTextSlidCels, 7);
 		sx += 12;
 	}
-	int sy = DIALOG_Y + 12;
-	for (int i = 0; i < 3; i++) {
-		CelDrawTo(out, { PANEL_X + 101, sy }, *pSTextSlidCels, 6);
-		CelDrawTo(out, { PANEL_X + 527, sy }, *pSTextSlidCels, 8);
-		sy += 12;
+	int drawnYborder = 12;
+	while ((drawnYborder + 12) < ErrorWindowHeight) {
+		CelDrawTo(out, { PANEL_X + 101, dialogStartY + drawnYborder }, *pSTextSlidCels, 6);
+		CelDrawTo(out, { PANEL_X + 527, dialogStartY + drawnYborder }, *pSTextSlidCels, 8);
+		drawnYborder += 12;
 	}
 
-	DrawHalfTransparentRectTo(out, PANEL_X + 104, DIALOG_Y - 8, 432, 54);
+	DrawHalfTransparentRectTo(out, PANEL_X + 104, dialogStartY - 8, 432, ErrorWindowHeight);
 
-	strcpy(tempstr, _(MsgStrings[msgflag]));
-	DrawString(out, tempstr, { PANEL_X + 101, DIALOG_Y + 24, 442, 0 }, UIS_CENTER);
+	auto message = DiabloMessages.front();
+	int lineNumber = 0;
+	for (auto &line : TextLines) {
+		DrawString(out, line.c_str(), { { PANEL_X + 109, dialogStartY + 12 + lineNumber * LineHeight }, { LineWidth, LineHeight } }, UiFlags::AlignCenter, 1, LineHeight);
+		lineNumber += 1;
+	}
 
 	if (msgdelay > 0 && msgdelay <= SDL_GetTicks() - 3500) {
 		msgdelay = 0;
 	}
 	if (msgdelay == 0) {
-		msgcnt--;
-		if (msgcnt == 0) {
-			msgflag = EMSG_NONE;
-		} else {
-			msgflag = msgtable[msgcnt];
-			msgdelay = SDL_GetTicks();
-		}
+		DiabloMessages.pop_front();
+		if (!DiabloMessages.empty())
+			InitNextLines();
 	}
 }
 

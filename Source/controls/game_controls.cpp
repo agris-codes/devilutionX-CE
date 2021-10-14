@@ -9,6 +9,7 @@
 #include "controls/menu_controls.h"
 #include "controls/modifier_hints.h"
 #include "controls/plrctrls.h"
+#include "controls/touch/gamepad.h"
 #include "doom.h"
 #include "gmenu.h"
 #include "options.h"
@@ -21,13 +22,13 @@ bool select_modifier_active = false;
 
 namespace {
 
-DWORD TranslateControllerButtonToKey(ControllerButton controllerButton)
+uint32_t TranslateControllerButtonToKey(ControllerButton controllerButton)
 {
 	switch (controllerButton) {
 	case ControllerButton_BUTTON_A: // Bottom button
-		return questlog ? DVL_VK_SPACE : DVL_VK_ESCAPE;
+		return QuestLogIsOpen ? DVL_VK_SPACE : DVL_VK_ESCAPE;
 	case ControllerButton_BUTTON_B: // Right button
-		return (sgpCurrentMenu != nullptr || stextflag != STORE_NONE || questlog) ? DVL_VK_RETURN : DVL_VK_SPACE;
+		return (sgpCurrentMenu != nullptr || stextflag != STORE_NONE || QuestLogIsOpen) ? DVL_VK_RETURN : DVL_VK_SPACE;
 	case ControllerButton_BUTTON_Y: // Top button
 		return DVL_VK_RETURN;
 	case ControllerButton_BUTTON_LEFTSTICK:
@@ -97,6 +98,47 @@ bool GetGameAction(const SDL_Event &event, ControllerButtonEvent ctrlEvent, Game
 {
 	const bool inGameMenu = InGameMenu();
 
+#if defined(VIRTUAL_GAMEPAD) && !defined(USE_SDL1)
+	if (event.type == SDL_FINGERDOWN) {
+		if (VirtualGamepadState.primaryActionButton.isHeld && VirtualGamepadState.primaryActionButton.didStateChange) {
+			if (!inGameMenu && !QuestLogIsOpen && !sbookflag)
+				*action = GameAction(GameActionType_PRIMARY_ACTION);
+			else if (sgpCurrentMenu != nullptr || stextflag != STORE_NONE || QuestLogIsOpen)
+				*action = GameActionSendKey { DVL_VK_RETURN, false };
+			else
+				*action = GameActionSendKey { DVL_VK_SPACE, false };
+			return true;
+		}
+		if (VirtualGamepadState.secondaryActionButton.isHeld && VirtualGamepadState.secondaryActionButton.didStateChange) {
+			if (!inGameMenu && !QuestLogIsOpen && !sbookflag)
+				*action = GameAction(GameActionType_SECONDARY_ACTION);
+			return true;
+		}
+		if (VirtualGamepadState.spellActionButton.isHeld && VirtualGamepadState.spellActionButton.didStateChange) {
+			if (!inGameMenu && !QuestLogIsOpen && !sbookflag)
+				*action = GameAction(GameActionType_CAST_SPELL);
+			return true;
+		}
+		if (VirtualGamepadState.cancelButton.isHeld && VirtualGamepadState.cancelButton.didStateChange) {
+			if (inGameMenu || sbookflag)
+				*action = GameActionSendKey { DVL_VK_ESCAPE, false };
+			else if (DoomFlag || invflag || QuestLogIsOpen || chrflag || spselflag)
+				*action = GameActionSendKey { DVL_VK_SPACE, false };
+			return true;
+		}
+		if (VirtualGamepadState.healthButton.isHeld && VirtualGamepadState.healthButton.didStateChange) {
+			if (!QuestLogIsOpen && !sbookflag && stextflag == STORE_NONE)
+				*action = GameAction(GameActionType_USE_HEALTH_POTION);
+			return true;
+		}
+		if (VirtualGamepadState.manaButton.isHeld && VirtualGamepadState.manaButton.didStateChange) {
+			if (!QuestLogIsOpen && !sbookflag && stextflag == STORE_NONE)
+				*action = GameAction(GameActionType_USE_MANA_POTION);
+			return true;
+		}
+	}
+#endif
+
 	if (HandleStartAndSelect(ctrlEvent, action))
 		return true;
 
@@ -157,7 +199,6 @@ bool GetGameAction(const SDL_Event &event, ControllerButtonEvent ctrlEvent, Game
 		case ControllerButton_BUTTON_START:
 		case ControllerButton_BUTTON_BACK:
 			return true;
-			break;
 		default:
 			break;
 		}
@@ -253,7 +294,7 @@ bool GetGameAction(const SDL_Event &event, ControllerButtonEvent ctrlEvent, Game
 				*action = GameAction(GameActionType_TOGGLE_INVENTORY);
 			else if (sbookflag)
 				*action = GameAction(GameActionType_TOGGLE_SPELL_BOOK);
-			else if (questlog)
+			else if (QuestLogIsOpen)
 				*action = GameAction(GameActionType_TOGGLE_QUEST_LOG);
 			else if (chrflag)
 				*action = GameAction(GameActionType_TOGGLE_CHARACTER_INFO);
@@ -262,7 +303,7 @@ bool GetGameAction(const SDL_Event &event, ControllerButtonEvent ctrlEvent, Game
 			return true;
 		}
 
-		if (!questlog && !sbookflag) {
+		if (!QuestLogIsOpen && !sbookflag) {
 			switch (ctrlEvent.button) {
 			case ControllerButton_IGNORE:
 				return true;
@@ -315,7 +356,7 @@ bool GetGameAction(const SDL_Event &event, ControllerButtonEvent ctrlEvent, Game
 	}
 
 	// DPad navigation is handled separately for these.
-	if (gmenu_is_active() || questlog || stextflag != STORE_NONE) {
+	if (gmenu_is_active() || QuestLogIsOpen || stextflag != STORE_NONE) {
 		switch (ctrlEvent.button) {
 		case ControllerButton_BUTTON_DPAD_UP:
 		case ControllerButton_BUTTON_DPAD_DOWN:

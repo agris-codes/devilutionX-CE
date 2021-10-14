@@ -8,10 +8,11 @@
 #include "utils/display.h"
 #include "utils/log.hpp"
 #include "utils/sdl_compat.h"
+#include "utils/sdl_wrap.h"
 
 namespace devilution {
 namespace {
-constexpr unsigned PcxHeaderSize = 128;
+constexpr size_t PcxHeaderSize = 128;
 constexpr unsigned NumPaletteColors = 256;
 constexpr unsigned PcxPaletteSize = 1 + NumPaletteColors * 3;
 
@@ -38,12 +39,13 @@ bool LoadPcxPixelsAndPalette(HANDLE handle, int width, int height, std::uint8_t 
 	pixelDataSize -= PcxHeaderSize + (has256ColorPalette ? PcxPaletteSize : 0);
 
 	// We read 1 extra byte because it delimits the palette.
-	const unsigned readSize = pixelDataSize + (has256ColorPalette ? PcxPaletteSize : 0);
+	const size_t readSize = pixelDataSize + (has256ColorPalette ? PcxPaletteSize : 0);
 	std::unique_ptr<BYTE[]> fileBuffer { new BYTE[readSize] };
 	if (!SFileReadFileThreadSafe(handle, fileBuffer.get(), readSize)) {
 		return false;
 	}
 	const unsigned xSkip = bufferPitch - width;
+	const unsigned srcSkip = width % 2;
 	BYTE *dataPtr = fileBuffer.get();
 	for (int j = 0; j < height; j++) {
 		for (int x = 0; x < width;) {
@@ -60,6 +62,7 @@ bool LoadPcxPixelsAndPalette(HANDLE handle, int width, int height, std::uint8_t 
 			buffer += runLength;
 			x += runLength;
 		}
+		dataPtr += srcSkip;
 		buffer += xSkip;
 	}
 
@@ -98,7 +101,7 @@ Uint32 GetPcxSdlPixelFormat(unsigned bpp)
 
 } // namespace
 
-void LoadArt(const char *pszFile, Art *art, int frames, SDL_Color *pPalette)
+void LoadArt(const char *pszFile, Art *art, int frames, SDL_Color *pPalette, const std::array<uint8_t, 256> *colorMapping)
 {
 	if (art == nullptr || art->surface != nullptr)
 		return;
@@ -119,8 +122,8 @@ void LoadArt(const char *pszFile, Art *art, int frames, SDL_Color *pPalette)
 		return;
 	}
 
-	SDLSurfaceUniquePtr artSurface { SDL_CreateRGBSurfaceWithFormat(SDL_SWSURFACE, width, height, bpp, GetPcxSdlPixelFormat(bpp)) };
-	if (!LoadPcxPixelsAndPalette(handle, width, height, bpp, static_cast<BYTE *>(artSurface->pixels),
+	SDLSurfaceUniquePtr artSurface = SDLWrap::CreateRGBSurfaceWithFormat(SDL_SWSURFACE, width, height, bpp, GetPcxSdlPixelFormat(bpp));
+	if (!LoadPcxPixelsAndPalette(handle, width, height, bpp, static_cast<uint8_t *>(artSurface->pixels),
 	        artSurface->pitch, pPalette)) {
 		Log("LoadArt(\"{}\"): LoadPcxPixelsAndPalette failed with code {}", pszFile, SErrGetLastError());
 		SFileCloseFileThreadSafe(handle);
@@ -128,15 +131,22 @@ void LoadArt(const char *pszFile, Art *art, int frames, SDL_Color *pPalette)
 	}
 	SFileCloseFileThreadSafe(handle);
 
+	if (colorMapping != nullptr) {
+		for (int i = 0; i < artSurface->h * artSurface->pitch; i++) {
+			auto &pixel = static_cast<uint8_t *>(artSurface->pixels)[i];
+			pixel = (*colorMapping)[pixel];
+		}
+	}
+
 	art->logical_width = artSurface->w;
 	art->frame_height = height / frames;
 
 	art->surface = ScaleSurfaceToOutput(std::move(artSurface));
 }
 
-void LoadMaskedArt(const char *pszFile, Art *art, int frames, int mask)
+void LoadMaskedArt(const char *pszFile, Art *art, int frames, int mask, const std::array<uint8_t, 256> *colorMapping)
 {
-	LoadArt(pszFile, art, frames);
+	LoadArt(pszFile, art, frames, nullptr, colorMapping);
 	if (art->surface != nullptr)
 		SDLC_SetColorKey(art->surface.get(), mask);
 }
@@ -146,8 +156,8 @@ void LoadArt(Art *art, const std::uint8_t *artData, int w, int h, int frames)
 	constexpr int DefaultArtBpp = 8;
 	constexpr int DefaultArtFormat = SDL_PIXELFORMAT_INDEX8;
 	art->frames = frames;
-	art->surface = ScaleSurfaceToOutput(SDLSurfaceUniquePtr { SDL_CreateRGBSurfaceWithFormatFrom(
-	    const_cast<std::uint8_t *>(artData), w, h, DefaultArtBpp, w, DefaultArtFormat) });
+	art->surface = ScaleSurfaceToOutput(SDLWrap::CreateRGBSurfaceWithFormatFrom(
+	    const_cast<std::uint8_t *>(artData), w, h, DefaultArtBpp, w, DefaultArtFormat));
 	art->logical_width = w;
 	art->frame_height = h / frames;
 }

@@ -66,7 +66,7 @@ prepare_buildroot() {
 
 make_buildroot() {
 	cd "$BUILDROOT"
-	BR2_JLEVEL=0 make toolchain libzip sdl sdl_ttf
+	BR2_JLEVEL=0 make toolchain sdl
 	cd -
 }
 
@@ -74,6 +74,8 @@ cmake_configure() {
 	cmake -S. -B"$BUILD_DIR" \
 		"-DTARGET_PLATFORM=$TARGET" \
 		-DCMAKE_TOOLCHAIN_FILE="${TOOLCHAIN}/usr/share/buildroot/toolchainfile.cmake" \
+		-DDEVILUTIONX_SYSTEM_LIBSODIUM=OFF \
+		-DDISABLE_ZERO_TIER=ON \
 		"$@"
 }
 

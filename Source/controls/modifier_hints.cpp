@@ -29,7 +29,7 @@ constexpr int LineHeight = 25;
 constexpr int CircleMarginX = 16;
 
 /** Distance between the panel top and the circle top. */
-constexpr int CircleTop = 76;
+constexpr int CircleTop = 101;
 
 struct CircleMenuHint {
 	CircleMenuHint(bool isDpad, const char *top, const char *right, const char *bottom, const char *left)
@@ -93,9 +93,9 @@ bool IsLeftActive(const CircleMenuHint &hint)
 	return IsControllerButtonPressed(ControllerButton_BUTTON_X);
 }
 
-uint16_t CircleMenuHintTextColor(bool active)
+UiFlags CircleMenuHintTextColor(bool active)
 {
-	return active ? UIS_BLUE : UIS_GOLD;
+	return active ? UiFlags::ColorBlue : UiFlags::ColorWhitegold;
 }
 
 /**
@@ -103,18 +103,18 @@ uint16_t CircleMenuHintTextColor(bool active)
  * @param out The output buffer to draw on.
  * @param hint Struct describing the text to draw and the dimensions of the layout.
  * @param origin Top left corner of the layout (relative to the output buffer).
-*/
-void DrawCircleMenuHint(const CelOutputBuffer &out, const CircleMenuHint &hint, const Point &origin)
+ */
+void DrawCircleMenuHint(const Surface &out, const CircleMenuHint &hint, const Point &origin)
 {
-	DrawString(out, hint.top, origin + Point { hint.xMid - hint.topW / 2, 0 }, CircleMenuHintTextColor(IsTopActive(hint)));
+	DrawString(out, hint.top, origin + Displacement { hint.xMid - hint.topW / 2, 0 }, CircleMenuHintTextColor(IsTopActive(hint)));
 
-	DrawString(out, hint.left, origin + Point { 0, LineHeight }, CircleMenuHintTextColor(IsLeftActive(hint)));
-	DrawString(out, hint.right, origin + Point { hint.leftW + MidSpaces * SpaceWidth(), LineHeight }, CircleMenuHintTextColor(IsRightActive(hint)));
+	DrawString(out, hint.left, origin + Displacement { 0, LineHeight }, CircleMenuHintTextColor(IsLeftActive(hint)));
+	DrawString(out, hint.right, origin + Displacement { hint.leftW + MidSpaces * SpaceWidth(), LineHeight }, CircleMenuHintTextColor(IsRightActive(hint)));
 
-	DrawString(out, hint.bottom, origin + Point { hint.xMid - hint.bottomW / 2, LineHeight * 2 }, CircleMenuHintTextColor(IsBottomActive(hint)));
+	DrawString(out, hint.bottom, origin + Displacement { hint.xMid - hint.bottomW / 2, LineHeight * 2 }, CircleMenuHintTextColor(IsBottomActive(hint)));
 }
 
-void DrawStartModifierMenu(const CelOutputBuffer &out)
+void DrawStartModifierMenu(const Surface &out)
 {
 	if (!start_modifier_active)
 		return;
@@ -124,7 +124,7 @@ void DrawStartModifierMenu(const CelOutputBuffer &out)
 	DrawCircleMenuHint(out, Buttons, { PANEL_LEFT + PANEL_WIDTH - Buttons.Width() - CircleMarginX, PANEL_TOP - CircleTop });
 }
 
-void DrawSelectModifierMenu(const CelOutputBuffer &out)
+void DrawSelectModifierMenu(const Surface &out)
 {
 	if (!select_modifier_active)
 		return;
@@ -138,7 +138,7 @@ void DrawSelectModifierMenu(const CelOutputBuffer &out)
 
 } // namespace
 
-void DrawControllerModifierHints(const CelOutputBuffer &out)
+void DrawControllerModifierHints(const Surface &out)
 {
 	DrawStartModifierMenu(out);
 	DrawSelectModifierMenu(out);

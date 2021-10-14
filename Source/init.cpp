@@ -8,6 +8,10 @@
 #include <string>
 #include <vector>
 
+#if defined(_WIN64) || defined(_WIN32)
+#include <find_steam_game.h>
+#endif
+
 #include "DiabloUI/diabloui.h"
 #include "dx.h"
 #include "pfile.h"
@@ -53,23 +57,23 @@ HANDLE devilutionx_mpq;
 
 namespace {
 
-HANDLE init_test_access(const std::vector<std::string> &paths, const char *mpq_name)
+HANDLE LoadMPQ(const std::vector<std::string> &paths, const char *mpqName)
 {
 	HANDLE archive;
-	std::string mpq_abspath;
+	std::string mpqAbsPath;
 	for (const auto &path : paths) {
-		mpq_abspath = path + mpq_name;
-		if (SFileOpenArchive(mpq_abspath.c_str(), 0, MPQ_OPEN_READ_ONLY, &archive)) {
-			LogVerbose("  Found: {} in {}", mpq_name, path);
-			SFileSetBasePath(path.c_str());
+		mpqAbsPath = path + mpqName;
+		if (SFileOpenArchive(mpqAbsPath.c_str(), 0, MPQ_OPEN_READ_ONLY, &archive)) {
+			LogVerbose("  Found: {} in {}", mpqName, path);
+			SFileSetBasePath(path);
 			return archive;
 		}
 		if (SErrGetLastError() != STORM_ERROR_FILE_NOT_FOUND) {
-			LogError("Open error {}: {}", SErrGetLastError(), mpq_abspath);
+			LogError("Open error {}: {}", SErrGetLastError(), mpqAbsPath);
 		}
 	}
 	if (SErrGetLastError() == STORM_ERROR_FILE_NOT_FOUND) {
-		LogVerbose("Missing: {}", mpq_name);
+		LogVerbose("Missing: {}", mpqName);
 	}
 
 	return nullptr;
@@ -80,7 +84,7 @@ HANDLE init_test_access(const std::vector<std::string> &paths, const char *mpq_n
 void init_cleanup()
 {
 	if (gbIsMultiplayer && gbRunGame) {
-		pfile_write_hero(/*write_game_data=*/false, /*clear_tables=*/true);
+		pfile_write_hero(/*writeGameData=*/false, /*clearTables=*/true);
 	}
 
 	if (spawn_mpq != nullptr) {
@@ -128,8 +132,8 @@ void init_cleanup()
 		hfopt2_mpq = nullptr;
 	}
 	if (devilutionx_mpq != nullptr) {
-		SFileCloseArchive(patch_rt_mpq);
-		patch_rt_mpq = nullptr;
+		SFileCloseArchive(devilutionx_mpq);
+		devilutionx_mpq = nullptr;
 	}
 
 	NetClose();
@@ -138,26 +142,23 @@ void init_cleanup()
 void init_archives()
 {
 	std::vector<std::string> paths;
-	paths.reserve(5);
-#ifdef __ANDROID__
-	paths.push_back(std::string(getenv("EXTERNAL_STORAGE")) + "/devilutionx/");
-#else
 	paths.push_back(paths::BasePath());
-#endif
 	paths.push_back(paths::PrefPath());
 	if (paths[0] == paths[1])
 		paths.pop_back();
 
-#ifdef __ANDROID__
-	if (getenv("SECONDARY_STORAGE") != nullptr)
-		paths.emplace_back(std::string(getenv("SECONDARY_STORAGE")) + "/devilutionx/");
-	if (getenv("EXTERNAL_SDCARD_STORAGE") != nullptr)
-		paths.emplace_back(std::string(getenv("EXTERNAL_SDCARD_STORAGE")) + "/devilutionx/");
-#elif defined(__linux__)
+#if defined(__linux__) && !defined(__ANDROID__)
 	paths.emplace_back("/usr/share/diasurgical/devilutionx/");
 	paths.emplace_back("/usr/local/share/diasurgical/devilutionx/");
 #elif defined(__3DS__)
 	paths.emplace_back("romfs:/");
+#elif defined(_WIN64) || defined(_WIN32)
+	char gogpath[_FSG_PATH_MAX];
+	fsg_get_gog_game_path(gogpath, "1412601690");
+	if (strlen(gogpath) > 0) {
+		paths.emplace_back(std::string(gogpath) + "/");
+		paths.emplace_back(std::string(gogpath) + "/hellfire/");
+	}
 #endif
 
 	paths.emplace_back(""); // PWD
@@ -174,14 +175,17 @@ void init_archives()
 		LogVerbose("MPQ search paths:{}", message);
 	}
 
-	diabdat_mpq = init_test_access(paths, "DIABDAT.MPQ");
+	// Load devilutionx.mpq first to get the font file for error messages
+	devilutionx_mpq = LoadMPQ(paths, "devilutionx.mpq");
+
+	diabdat_mpq = LoadMPQ(paths, "DIABDAT.MPQ");
 	if (diabdat_mpq == nullptr) {
 		// DIABDAT.MPQ is uppercase on the original CD and the GOG version.
-		diabdat_mpq = init_test_access(paths, "diabdat.mpq");
+		diabdat_mpq = LoadMPQ(paths, "diabdat.mpq");
 	}
 
 	if (diabdat_mpq == nullptr) {
-		spawn_mpq = init_test_access(paths, "spawn.mpq");
+		spawn_mpq = LoadMPQ(paths, "spawn.mpq");
 		if (spawn_mpq != nullptr)
 			gbIsSpawn = true;
 	}
@@ -190,31 +194,31 @@ void init_archives()
 		InsertCDDlg();
 	SFileCloseFileThreadSafe(fh);
 
-	patch_rt_mpq = init_test_access(paths, "patch_rt.mpq");
+	patch_rt_mpq = LoadMPQ(paths, "patch_rt.mpq");
 	if (patch_rt_mpq == nullptr)
-		patch_rt_mpq = init_test_access(paths, "patch_sh.mpq");
+		patch_rt_mpq = LoadMPQ(paths, "patch_sh.mpq");
 
-	hellfire_mpq = init_test_access(paths, "hellfire.mpq");
+	hellfire_mpq = LoadMPQ(paths, "hellfire.mpq");
 	if (hellfire_mpq != nullptr)
 		gbIsHellfire = true;
-	hfmonk_mpq = init_test_access(paths, "hfmonk.mpq");
-	hfbard_mpq = init_test_access(paths, "hfbard.mpq");
+	hfmonk_mpq = LoadMPQ(paths, "hfmonk.mpq");
+	hfbard_mpq = LoadMPQ(paths, "hfbard.mpq");
 	if (hfbard_mpq != nullptr)
 		gbBard = true;
-	hfbarb_mpq = init_test_access(paths, "hfbarb.mpq");
+	hfbarb_mpq = LoadMPQ(paths, "hfbarb.mpq");
 	if (hfbarb_mpq != nullptr)
 		gbBarbarian = true;
-	hfmusic_mpq = init_test_access(paths, "hfmusic.mpq");
-	hfvoice_mpq = init_test_access(paths, "hfvoice.mpq");
-	hfopt1_mpq = init_test_access(paths, "hfopt1.mpq");
-	hfopt2_mpq = init_test_access(paths, "hfopt2.mpq");
+	hfmusic_mpq = LoadMPQ(paths, "hfmusic.mpq");
+	hfvoice_mpq = LoadMPQ(paths, "hfvoice.mpq");
+	hfopt1_mpq = LoadMPQ(paths, "hfopt1.mpq");
+	hfopt2_mpq = LoadMPQ(paths, "hfopt2.mpq");
 
 	if (gbIsHellfire && (hfmonk_mpq == nullptr || hfmusic_mpq == nullptr || hfvoice_mpq == nullptr)) {
 		UiErrorOkDialog(_("Some Hellfire MPQs are missing"), _("Not all Hellfire MPQs were found.\nPlease copy all the hf*.mpq files."));
 		app_fatal(nullptr);
 	}
 
-	devilutionx_mpq = init_test_access(paths, "devilutionx.mpq");
+	SFileSetAssetsPath(paths::AppPath() + "assets/");
 }
 
 void init_create_window()
@@ -228,25 +232,24 @@ void init_create_window()
 #endif
 }
 
-void MainWndProc(uint32_t Msg)
+void MainWndProc(uint32_t msg)
 {
-	switch (Msg) {
+	switch (msg) {
 	case DVL_WM_PAINT:
 		force_redraw = 255;
 		break;
 	case DVL_WM_QUERYENDSESSION:
 		diablo_quit(0);
-		break;
 	}
 }
 
-WNDPROC SetWindowProc(WNDPROC NewProc)
+WNDPROC SetWindowProc(WNDPROC newProc)
 {
-	WNDPROC OldProc;
+	WNDPROC oldProc;
 
-	OldProc = CurrentProc;
-	CurrentProc = NewProc;
-	return OldProc;
+	oldProc = CurrentProc;
+	CurrentProc = newProc;
+	return oldProc;
 }
 
 } // namespace devilution
