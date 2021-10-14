@@ -53,8 +53,9 @@ struct _uidefaultstats {
 };
 
 struct _uiheroinfo {
+	uint32_t saveNumber;
 	char name[16];
-	uint16_t level;
+	uint8_t level;
 	HeroClass heroclass;
 	uint8_t herorank;
 	uint16_t strength;
@@ -85,7 +86,7 @@ inline SDL_Surface *DiabloUiSurface()
 	// to an off-screen surface first to avoid flickering / tearing.
 	if ((output_surface->flags & SDL_HWSURFACE) != 0
 	    && (output_surface->flags & SDL_DOUBLEBUF) == 0) {
-		return pal_surface;
+		return PalSurface;
 	}
 #endif
 
@@ -97,8 +98,8 @@ void UiTitleDialog();
 void UiSetSpawned(bool bSpawned);
 void UiInitialize();
 bool UiValidPlayerName(const char *name); /* check */
-void UiSelHeroMultDialog(bool (*fninfo)(bool (*fninfofunc)(_uiheroinfo *)), bool (*fncreate)(_uiheroinfo *), bool (*fnremove)(_uiheroinfo *), void (*fnstats)(unsigned int, _uidefaultstats *), _selhero_selections *dlgresult, char (*name)[16]);
-void UiSelHeroSingDialog(bool (*fninfo)(bool (*fninfofunc)(_uiheroinfo *)), bool (*fncreate)(_uiheroinfo *), bool (*fnremove)(_uiheroinfo *), void (*fnstats)(unsigned int, _uidefaultstats *), _selhero_selections *dlgresult, char (*name)[16], _difficulty *difficulty);
+void UiSelHeroMultDialog(bool (*fninfo)(bool (*fninfofunc)(_uiheroinfo *)), bool (*fncreate)(_uiheroinfo *), bool (*fnremove)(_uiheroinfo *), void (*fnstats)(unsigned int, _uidefaultstats *), _selhero_selections *dlgresult, uint32_t *saveNumber);
+void UiSelHeroSingDialog(bool (*fninfo)(bool (*fninfofunc)(_uiheroinfo *)), bool (*fncreate)(_uiheroinfo *), bool (*fnremove)(_uiheroinfo *), void (*fnstats)(unsigned int, _uidefaultstats *), _selhero_selections *dlgresult, uint32_t *saveNumber, _difficulty *difficulty);
 bool UiCreditsDialog();
 bool UiSupportDialog();
 bool UiMainMenuDialog(const char *name, _mainmenu_selections *pdwResult, void (*fnSound)(const char *file), int attractTimeOut);
@@ -108,20 +109,22 @@ bool UiSelectProvider(GameData *gameData);
 void UiFadeIn();
 void UiHandleEvents(SDL_Event *event);
 bool UiItemMouseEvents(SDL_Event *event, const std::vector<UiItemBase *> &items);
+bool UiItemMouseEvents(SDL_Event *event, const std::vector<std::unique_ptr<UiItemBase>> &items);
 Sint16 GetCenterOffset(Sint16 w, Sint16 bw = 0);
 void LoadPalInMem(const SDL_Color *pPal);
 void DrawMouse();
 void LoadBackgroundArt(const char *pszFile, int frames = 1);
-void UiAddBackground(std::vector<UiItemBase *> *vecDialog);
-void UiAddLogo(std::vector<UiItemBase *> *vecDialog, int size = LOGO_MED, int y = 0);
+void UiAddBackground(std::vector<std::unique_ptr<UiItemBase>> *vecDialog);
+void UiAddLogo(std::vector<std::unique_ptr<UiItemBase>> *vecDialog, int size = LOGO_MED, int y = 0);
 void UiFocusNavigationSelect();
 void UiFocusNavigationEsc();
 void UiFocusNavigationYesNo();
-void UiInitList(int count, void (*fnFocus)(int value), void (*fnSelect)(int value), void (*fnEsc)(), const std::vector<UiItemBase *> &items, bool wraps = false, bool (*fnYesNo)() = NULL);
-void UiInitScrollBar(UiScrollBar *uiSb, std::size_t viewportSize, const std::size_t *currentOffset);
+void UiInitList(int count, void (*fnFocus)(int value), void (*fnSelect)(int value), void (*fnEsc)(), const std::vector<std::unique_ptr<UiItemBase>> &items, bool wraps = false, bool (*fnYesNo)() = NULL, size_t selectedItem = 0);
+void UiInitScrollBar(UiScrollbar *uiSb, std::size_t viewportSize, const std::size_t *currentOffset);
 void UiClearScreen();
 void UiPollAndRender();
 void UiRenderItems(const std::vector<UiItemBase *> &items);
+void UiRenderItems(const std::vector<std::unique_ptr<UiItemBase>> &items);
 void UiInitList_clear();
 
 void mainmenu_restart_repintro();

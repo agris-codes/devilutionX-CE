@@ -4,14 +4,58 @@
  * Implementation of functions for compression and decompressing MPQ data.
  */
 #include <SDL.h>
+#include <cctype>
 #include <memory>
+#include <array>
 
 #include "encrypt.h"
 #include "pkware.h"
 
 namespace devilution {
 
-static uint32_t hashtable[5][256];
+namespace {
+
+unsigned int PkwareBufferRead(char *buf, unsigned int *size, void *param) // NOLINT(readability-non-const-parameter)
+{
+	auto *pInfo = reinterpret_cast<TDataInfo *>(param);
+
+	uint32_t sSize;
+	if (*size >= pInfo->size - pInfo->srcOffset) {
+		sSize = pInfo->size - pInfo->srcOffset;
+	} else {
+		sSize = *size;
+	}
+
+	memcpy(buf, pInfo->srcData + pInfo->srcOffset, sSize);
+	pInfo->srcOffset += sSize;
+
+	return sSize;
+}
+
+void PkwareBufferWrite(char *buf, unsigned int *size, void *param) // NOLINT(readability-non-const-parameter)
+{
+	auto *pInfo = reinterpret_cast<TDataInfo *>(param);
+
+	memcpy(pInfo->destData + pInfo->destOffset, buf, *size);
+	pInfo->destOffset += *size;
+}
+
+const std::array<std::array<uint32_t, 256>, 5> hashtable = []() {
+	uint32_t seed = 0x00100001;
+	std::array<std::array<uint32_t, 256>, 5> ret = {};
+
+	for (int i = 0; i < 256; i++) {
+		for (int j = 0; j < 5; j++) { // NOLINT(modernize-loop-convert)
+			seed = (125 * seed + 3) % 0x2AAAAB;
+			uint32_t ch = (seed & 0xFFFF);
+			seed = (125 * seed + 3) % 0x2AAAAB;
+			ret[j][i] = ch << 16 | (seed & 0xFFFF);
+		}
+	}
+	return ret;
+}();
+
+} // namespace
 
 void Decrypt(uint32_t *castBlock, uint32_t size, uint32_t key)
 {
@@ -53,45 +97,6 @@ uint32_t Hash(const char *s, int type)
 		seed2 += ch + seed1 + (seed2 << 5) + 3;
 	}
 	return seed1;
-}
-
-void InitHash()
-{
-	uint32_t seed = 0x00100001;
-
-	for (int i = 0; i < 256; i++) {
-		for (int j = 0; j < 5; j++) { // NOLINT(modernize-loop-convert)
-			seed = (125 * seed + 3) % 0x2AAAAB;
-			uint32_t ch = (seed & 0xFFFF);
-			seed = (125 * seed + 3) % 0x2AAAAB;
-			hashtable[j][i] = ch << 16 | (seed & 0xFFFF);
-		}
-	}
-}
-
-static unsigned int PkwareBufferRead(char *buf, unsigned int *size, void *param) // NOLINT(readability-non-const-parameter)
-{
-	auto *pInfo = (TDataInfo *)param;
-
-	uint32_t sSize;
-	if (*size >= pInfo->size - pInfo->srcOffset) {
-		sSize = pInfo->size - pInfo->srcOffset;
-	} else {
-		sSize = *size;
-	}
-
-	memcpy(buf, pInfo->srcData + pInfo->srcOffset, sSize);
-	pInfo->srcOffset += sSize;
-
-	return sSize;
-}
-
-static void PkwareBufferWrite(char *buf, unsigned int *size, void *param) // NOLINT(readability-non-const-parameter)
-{
-	auto *pInfo = (TDataInfo *)param;
-
-	memcpy(pInfo->destData + pInfo->destOffset, buf, *size);
-	pInfo->destOffset += *size;
 }
 
 uint32_t PkwareCompress(byte *srcData, uint32_t size)

@@ -9,12 +9,32 @@
 
 namespace devilution {
 
-int GetManaAmount(PlayerStruct &player, spell_id sn);
+enum class SpellCheckResult : uint8_t {
+	Success,
+	Fail_NoMana,
+	Fail_Level0,
+	Fail_Busy,
+};
+
+int GetManaAmount(Player &player, spell_id sn);
 void UseMana(int id, spell_id sn);
-bool CheckSpell(int id, spell_id sn, spell_type st, bool manaonly);
-void EnsureValidReadiedSpell(PlayerStruct &player);
+SpellCheckResult CheckSpell(int id, spell_id sn, spell_type st, bool manaonly);
+
+/**
+ * @brief Ensures the player's current readied spell is a valid selection for the character. If the current selection is
+ * incompatible with the player's items and spell (for example, if the player does not currently have access to the spell),
+ * the selection is cleared.
+ * @note Will force a UI redraw in case the values actually change, so that the new spell reflects on the bottom panel.
+ * @param player The player whose readied spell is to be checked.
+ */
+void EnsureValidReadiedSpell(Player &player);
 void CastSpell(int id, int spl, int sx, int sy, int dx, int dy, int spllvl);
-void DoResurrect(int pnum, int rid);
+
+/**
+ * @param pnum player index
+ * @param rid target player index
+ */
+void DoResurrect(int pnum, uint16_t rid);
 void DoHealOther(int pnum, uint16_t rid);
 int GetSpellBookLevel(spell_id s);
 int GetSpellStaffLevel(spell_id s);

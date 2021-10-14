@@ -27,7 +27,6 @@ enum _cmd_id : uint8_t {
 	CMD_ADDMAG,
 	CMD_ADDDEX,
 	CMD_ADDVIT,
-	CMD_SBSPELL,
 	CMD_GETITEM,
 	CMD_AGETITEM,
 	CMD_PUTITEM,
@@ -117,12 +116,11 @@ enum _cmd_id : uint8_t {
 	CMD_SYNCPUTITEM,
 	CMD_KILLGOLEM,
 	CMD_SYNCQUEST,
-	CMD_ENDSHIELD,
 	CMD_AWAKEGOLEM,
 	CMD_NOVA,
 	CMD_SETSHIELD,
 	CMD_REMSHIELD,
-	CMD_REFLECT,
+	CMD_SETREFLECT,
 	CMD_NAKRUL,
 	CMD_OPENHIVE,
 	CMD_OPENCRYPT,
@@ -167,6 +165,16 @@ struct TCmdLocParam3 {
 	uint16_t wParam3;
 };
 
+struct TCmdLocParam4 {
+	_cmd_id bCmd;
+	uint8_t x;
+	uint8_t y;
+	uint16_t wParam1;
+	uint16_t wParam2;
+	uint16_t wParam3;
+	uint16_t wParam4;
+};
+
 struct TCmdParam1 {
 	_cmd_id bCmd;
 	uint16_t wParam1;
@@ -185,6 +193,14 @@ struct TCmdParam3 {
 	uint16_t wParam3;
 };
 
+struct TCmdParam4 {
+	_cmd_id bCmd;
+	uint16_t wParam1;
+	uint16_t wParam2;
+	uint16_t wParam3;
+	uint16_t wParam4;
+};
+
 struct TCmdGolem {
 	_cmd_id bCmd;
 	uint8_t _mx;
@@ -197,12 +213,15 @@ struct TCmdGolem {
 
 struct TCmdQuest {
 	_cmd_id bCmd;
-	uint8_t q;
+	int8_t q;
 	quest_state qstate;
 	uint8_t qlog;
 	uint8_t qvar1;
 };
 
+/**
+ * Represents an item being picked up from the ground
+ */
 struct TCmdGItem {
 	_cmd_id bCmd;
 	uint8_t bMaster;
@@ -230,6 +249,9 @@ struct TCmdGItem {
 	int16_t bAC;
 };
 
+/**
+ * Represents an item being dropped onto the ground
+ */
 struct TCmdPItem {
 	_cmd_id bCmd;
 	uint8_t x;
@@ -238,7 +260,7 @@ struct TCmdPItem {
 	uint16_t wCI;
 	/**
 	 * Item identifier
-	 * @see ItemStruct::_iSeed
+	 * @see Item::_iSeed
 	 */
 	int32_t dwSeed;
 	uint8_t bId;
@@ -309,8 +331,6 @@ struct TSyncHeader {
 	_cmd_id bCmd;
 	uint8_t bLevel;
 	uint16_t wLen;
-	uint8_t bObjId;
-	uint8_t bObjCmd;
 	uint8_t bItemI;
 	uint8_t bItemX;
 	uint8_t bItemY;
@@ -329,12 +349,6 @@ struct TSyncHeader {
 	uint16_t wPInvCI;
 	uint32_t dwPInvSeed;
 	uint8_t bPInvId;
-	uint16_t wToHit;
-	uint16_t wMaxDam;
-	uint8_t bMinStr;
-	uint8_t bMinMag;
-	uint8_t bMinDex;
-	uint8_t bAC;
 };
 
 struct TSyncMonster {
@@ -407,14 +421,6 @@ struct DJunk {
 };
 #pragma pack(pop)
 
-#pragma pack(push, 1)
-struct TMegaPkt {
-	struct TMegaPkt *pNext;
-	uint32_t dwSpaceLeft;
-	byte data[32000];
-};
-#pragma pack(pop)
-
 struct TBuffer {
 	uint32_t dwNextWriteOffset;
 	byte bData[4096];
@@ -431,7 +437,7 @@ void DeltaExportData(int pnum);
 void delta_init();
 void delta_kill_monster(int mi, Point position, BYTE bLevel);
 void delta_monster_hp(int mi, int hp, BYTE bLevel);
-void delta_sync_monster(const TSyncMonster *pSync, BYTE bLevel);
+void delta_sync_monster(const TSyncMonster &monsterSync, uint8_t level);
 bool delta_portal_inited(int i);
 bool delta_quest_inited(int i);
 void DeltaAddItem(int ii);
@@ -443,19 +449,21 @@ void NetSendCmdLoc(int playerId, bool bHiPri, _cmd_id bCmd, Point position);
 void NetSendCmdLocParam1(bool bHiPri, _cmd_id bCmd, Point position, uint16_t wParam1);
 void NetSendCmdLocParam2(bool bHiPri, _cmd_id bCmd, Point position, uint16_t wParam1, uint16_t wParam2);
 void NetSendCmdLocParam3(bool bHiPri, _cmd_id bCmd, Point position, uint16_t wParam1, uint16_t wParam2, uint16_t wParam3);
+void NetSendCmdLocParam4(bool bHiPri, _cmd_id bCmd, Point position, uint16_t wParam1, uint16_t wParam2, uint16_t wParam3, uint16_t wParam4);
 void NetSendCmdParam1(bool bHiPri, _cmd_id bCmd, uint16_t wParam1);
 void NetSendCmdParam2(bool bHiPri, _cmd_id bCmd, uint16_t wParam1, uint16_t wParam2);
 void NetSendCmdParam3(bool bHiPri, _cmd_id bCmd, uint16_t wParam1, uint16_t wParam2, uint16_t wParam3);
-void NetSendCmdQuest(bool bHiPri, BYTE q);
+void NetSendCmdParam4(bool bHiPri, _cmd_id bCmd, uint16_t wParam1, uint16_t wParam2, uint16_t wParam3, uint16_t wParam4);
+void NetSendCmdQuest(bool bHiPri, const Quest &quest);
 void NetSendCmdGItem(bool bHiPri, _cmd_id bCmd, BYTE mast, BYTE pnum, BYTE ii);
 void NetSendCmdPItem(bool bHiPri, _cmd_id bCmd, Point position);
 void NetSendCmdChItem(bool bHiPri, BYTE bLoc);
 void NetSendCmdDelItem(bool bHiPri, BYTE bLoc);
 void NetSendCmdDItem(bool bHiPri, int ii);
-void NetSendCmdDamage(bool bHiPri, uint8_t bPlr, DWORD dwDam);
-void NetSendCmdMonDmg(bool bHiPri, uint16_t wMon, DWORD dwDam);
+void NetSendCmdDamage(bool bHiPri, uint8_t bPlr, uint32_t dwDam);
+void NetSendCmdMonDmg(bool bHiPri, uint16_t wMon, uint32_t dwDam);
 void NetSendCmdString(uint32_t pmask, const char *pszStr);
 void delta_close_portal(int pnum);
-DWORD ParseCmd(int pnum, TCmd *pCmd);
+uint32_t ParseCmd(int pnum, const TCmd *pCmd);
 
 } // namespace devilution

@@ -116,7 +116,9 @@ enum class HeroSpeech {
 	MaybeItsLockedFromTheInside,
 	LooksLikeItsRustedShut,
 	MaybeTheresAnotherWay,
-	LAST = MaybeTheresAnotherWay
+	AuughUh,
+
+	LAST = AuughUh
 };
 
 enum _sfx_id : int16_t {
@@ -1177,7 +1179,7 @@ bool effect_is_playing(int nSFX);
 void stream_stop();
 void InitMonsterSND(int monst);
 void FreeMonsterSnd();
-void PlayEffect(int i, int mode);
+bool CalculateSoundPosition(Point soundPosition, int *plVolume, int *plPan);
 void PlaySFX(_sfx_id psfx);
 void PlaySfxLoc(_sfx_id psfx, Point position, bool randomizeByCategory = true);
 void sound_stop();
@@ -1185,11 +1187,7 @@ void sound_update();
 void effects_cleanup_sfx();
 void sound_init();
 void ui_sound_init();
-void effects_play_sound(const char *snd_file);
-
-#ifndef NOSOUND
-bool calc_snd_position(Point soundPosition, int *plVolume, int *plPan);
+void effects_play_sound(const char *sndFile);
 int GetSFXLength(int nSFX);
-#endif
 
 } // namespace devilution

@@ -34,12 +34,16 @@ bool gbSndInited;
 /** The active background music track id. */
 _music_id sgnMusicTrack = NUM_MUSIC;
 
+bool gbMusicOn = true;
+/** Specifies whether sound effects are enabled. */
+bool gbSoundOn = true;
+
 namespace {
 
 std::optional<Aulib::Stream> music;
 
 #ifdef DISABLE_STREAMING_MUSIC
-char *musicBuffer;
+std::unique_ptr<char[]> musicBuffer;
 #endif
 
 void LoadMusic(HANDLE handle)
@@ -47,12 +51,12 @@ void LoadMusic(HANDLE handle)
 #ifndef DISABLE_STREAMING_MUSIC
 	SDL_RWops *musicRw = SFileRw_FromStormHandle(handle);
 #else
-	int bytestoread = SFileGetFileSize(handle);
-	musicBuffer = new char[bytestoread];
-	SFileReadFileThreadSafe(handle, musicBuffer, bytestoread);
+	size_t bytestoread = SFileGetFileSize(handle);
+	musicBuffer.reset(new char[bytestoread]);
+	SFileReadFileThreadSafe(handle, musicBuffer.get(), bytestoread);
 	SFileCloseFileThreadSafe(handle);
 
-	SDL_RWops *musicRw = SDL_RWFromConstMem(musicBuffer, bytestoread);
+	SDL_RWops *musicRw = SDL_RWFromConstMem(musicBuffer.get(), bytestoread);
 #endif
 	music.emplace(musicRw, std::make_unique<Aulib::DecoderDrwav>(),
 	    std::make_unique<Aulib::ResamplerSpeex>(sgOptions.Audio.nResamplingQuality), /*closeRw=*/true);
@@ -63,10 +67,7 @@ void CleanupMusic()
 	music = std::nullopt;
 	sgnMusicTrack = NUM_MUSIC;
 #ifdef DISABLE_STREAMING_MUSIC
-	if (musicBuffer != nullptr) {
-		delete[] musicBuffer;
-		musicBuffer = nullptr;
-	}
+	musicBuffer = nullptr;
 #endif
 }
 
@@ -93,16 +94,8 @@ SoundSample *DuplicateSound(const SoundSample &sound)
 	return result;
 }
 
-} // namespace
-
-/* data */
-
-bool gbMusicOn = true;
-/** Specifies whether sound effects are enabled. */
-bool gbSoundOn = true;
-
 /** Maps from track ID to track name in spawn. */
-const char *const sgszSpawnMusicTracks[NUM_MUSIC] = {
+const char *const SpawnMusicTracks[NUM_MUSIC] = {
 	"Music\\sTowne.wav",
 	"Music\\sLvlA.wav",
 	"Music\\sLvlA.wav",
@@ -113,7 +106,7 @@ const char *const sgszSpawnMusicTracks[NUM_MUSIC] = {
 	"Music\\sintro.wav",
 };
 /** Maps from track ID to track name. */
-const char *const sgszMusicTracks[NUM_MUSIC] = {
+const char *const MusicTracks[NUM_MUSIC] = {
 	"Music\\DTowne.wav",
 	"Music\\DLvlA.wav",
 	"Music\\DLvlB.wav",
@@ -124,10 +117,12 @@ const char *const sgszMusicTracks[NUM_MUSIC] = {
 	"Music\\Dintro.wav",
 };
 
-static int CapVolume(int volume)
+int CapVolume(int volume)
 {
 	return clamp(volume, VOLUME_MIN, VOLUME_MAX);
 }
+
+} // namespace
 
 void ClearDuplicateSounds()
 {
@@ -137,13 +132,11 @@ void ClearDuplicateSounds()
 
 void snd_play_snd(TSnd *pSnd, int lVolume, int lPan)
 {
-	DWORD tc;
-
 	if (pSnd == nullptr || !gbSoundOn) {
 		return;
 	}
 
-	tc = SDL_GetTicks();
+	uint32_t tc = SDL_GetTicks();
 	if (tc - pSnd->start_tc < 80) {
 		return;
 	}
@@ -161,7 +154,6 @@ void snd_play_snd(TSnd *pSnd, int lVolume, int lPan)
 
 std::unique_ptr<TSnd> sound_file_load(const char *path, bool stream)
 {
-	int error = 0;
 
 	auto snd = std::make_unique<TSnd>();
 	snd->start_tc = SDL_GetTicks() - 80 - 1;
@@ -169,8 +161,7 @@ std::unique_ptr<TSnd> sound_file_load(const char *path, bool stream)
 #ifndef STREAM_ALL_AUDIO
 	if (stream) {
 #endif
-		error = snd->DSB.SetChunkStream(path);
-		if (error != 0) {
+		if (snd->DSB.SetChunkStream(path) != 0) {
 			ErrSdl();
 		}
 #ifndef STREAM_ALL_AUDIO
@@ -179,27 +170,25 @@ std::unique_ptr<TSnd> sound_file_load(const char *path, bool stream)
 		if (!SFileOpenFile(path, &file)) {
 			ErrDlg("SFileOpenFile failed", path, __FILE__, __LINE__);
 		}
-		DWORD dwBytes = SFileGetFileSize(file);
-		auto wave_file = MakeArraySharedPtr<std::uint8_t>(dwBytes);
-		SFileReadFileThreadSafe(file, wave_file.get(), dwBytes);
-		error = snd->DSB.SetChunk(wave_file, dwBytes);
+		size_t dwBytes = SFileGetFileSize(file);
+		auto waveFile = MakeArraySharedPtr<std::uint8_t>(dwBytes);
+		SFileReadFileThreadSafe(file, waveFile.get(), dwBytes);
+		int error = snd->DSB.SetChunk(waveFile, dwBytes);
 		SFileCloseFileThreadSafe(file);
+		if (error != 0) {
+			ErrSdl();
+		}
 	}
 #endif
-	if (error != 0) {
-		ErrSdl();
-	}
 
 	return snd;
 }
 
-#ifndef NOSOUND
 TSnd::~TSnd()
 {
 	DSB.Stop();
 	DSB.Release();
 }
-#endif
 
 void snd_init()
 {
@@ -245,13 +234,13 @@ void music_start(uint8_t nTrack)
 	bool success;
 	const char *trackPath;
 
-	assert((DWORD)nTrack < NUM_MUSIC);
+	assert(nTrack < NUM_MUSIC);
 	music_stop();
 	if (gbMusicOn) {
 		if (spawn_mpq != nullptr)
-			trackPath = sgszSpawnMusicTracks[nTrack];
+			trackPath = SpawnMusicTracks[nTrack];
 		else
-			trackPath = sgszMusicTracks[nTrack];
+			trackPath = MusicTracks[nTrack];
 		HANDLE handle;
 		success = SFileOpenFile(trackPath, &handle);
 		if (!success) {
@@ -306,6 +295,18 @@ int sound_get_or_set_sound_volume(int volume)
 	sgOptions.Audio.nSoundVolume = volume;
 
 	return sgOptions.Audio.nSoundVolume;
+}
+
+void music_mute()
+{
+	if (music)
+		music->setVolume(VolumeLogToLinear(VOLUME_MIN, VOLUME_MIN, VOLUME_MAX));
+}
+
+void music_unmute()
+{
+	if (music)
+		music->setVolume(VolumeLogToLinear(sgOptions.Audio.nMusicVolume, VOLUME_MIN, VOLUME_MAX));
 }
 
 } // namespace devilution

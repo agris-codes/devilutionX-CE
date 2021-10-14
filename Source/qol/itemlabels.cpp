@@ -18,24 +18,24 @@ namespace devilution {
 
 namespace {
 
-struct itemLabel {
+struct ItemLabel {
 	int id, width;
 	Point pos;
 	std::string text;
 };
 
-std::vector<itemLabel> labelQueue;
+std::vector<ItemLabel> labelQueue;
 
 bool altPressed = false;
 bool isLabelHighlighted = false;
 std::array<std::optional<int>, ITEMTYPES> labelCenterOffsets;
 bool invertHighlightToggle = false;
 
-const int borderX = 4;               // minimal horizontal space between labels
-const int borderY = 2;               // minimal vertical space between labels
-const int marginX = 2;               // horizontal margins between text and edges of the label
-const int marginY = 1;               // vertical margins between text and edges of the label
-const int height = 11 + marginY * 2; // going above 13 scatters labels of items that are next to each other
+const int BorderX = 4;               // minimal horizontal space between labels
+const int BorderY = 2;               // minimal vertical space between labels
+const int MarginX = 2;               // horizontal margins between text and edges of the label
+const int MarginY = 1;               // vertical margins between text and edges of the label
+const int Height = 11 + MarginY * 2; // going above 13 scatters labels of items that are next to each other
 
 } // namespace
 
@@ -63,21 +63,21 @@ void AddItemToLabelQueue(int id, int x, int y)
 {
 	if (!IsHighlightingLabelsEnabled())
 		return;
-	ItemStruct *it = &items[id];
+	Item &item = Items[id];
 
 	const char *textOnGround;
-	if (it->_itype == ITYPE_GOLD) {
-		std::sprintf(tempstr, _("%i gold"), it->_ivalue);
+	if (item._itype == ItemType::Gold) {
+		std::sprintf(tempstr, _("%i gold"), item._ivalue);
 		textOnGround = tempstr;
 	} else {
-		textOnGround = it->_iIdentified ? it->_iIName : it->_iName;
+		textOnGround = item._iIdentified ? item._iIName : item._iName;
 	}
 
 	int nameWidth = GetLineWidth(textOnGround);
-	nameWidth += marginX * 2;
-	int index = ItemCAnimTbl[it->_iCurs];
+	nameWidth += MarginX * 2;
+	int index = ItemCAnimTbl[item._iCurs];
 	if (!labelCenterOffsets[index]) {
-		std::pair<int, int> itemBounds = MeasureSolidHorizontalBounds(*it->AnimInfo.pCelSprite, it->AnimInfo.CurrentFrame);
+		std::pair<int, int> itemBounds = MeasureSolidHorizontalBounds(*item.AnimInfo.pCelSprite, item.AnimInfo.CurrentFrame);
 		labelCenterOffsets[index].emplace((itemBounds.first + itemBounds.second) / 2);
 	}
 
@@ -88,29 +88,29 @@ void AddItemToLabelQueue(int id, int x, int y)
 		y *= 2;
 	}
 	x -= nameWidth / 2;
-	labelQueue.push_back(itemLabel { id, nameWidth, { x, y }, textOnGround });
+	labelQueue.push_back(ItemLabel { id, nameWidth, { x, y - Height }, textOnGround });
 }
 
 bool IsMouseOverGameArea()
 {
-	if ((invflag || sbookflag) && MousePosition.x > RIGHT_PANEL && MousePosition.y <= SPANEL_HEIGHT)
+	if ((invflag || sbookflag) && RightPanel.Contains(MousePosition))
 		return false;
-	if ((chrflag || questlog) && MousePosition.x < SPANEL_WIDTH && MousePosition.y <= SPANEL_HEIGHT)
+	if ((chrflag || QuestLogIsOpen) && LeftPanel.Contains(MousePosition))
 		return false;
-	if (MousePosition.y >= PANEL_TOP && MousePosition.x >= PANEL_LEFT && MousePosition.x <= PANEL_LEFT + PANEL_WIDTH)
+	if (MainPanel.Contains(MousePosition))
 		return false;
 
 	return true;
 }
 
-void FillRect(const CelOutputBuffer &out, int x, int y, int width, int height, Uint8 col)
+void FillRect(const Surface &out, int x, int y, int width, int height, Uint8 col)
 {
 	for (int j = 0; j < height; j++) {
 		DrawHorizontalLine(out, { x, y + j }, width, col);
 	}
 }
 
-void DrawItemNameLabels(const CelOutputBuffer &out)
+void DrawItemNameLabels(const Surface &out)
 {
 	isLabelHighlighted = false;
 
@@ -121,11 +121,11 @@ void DrawItemNameLabels(const CelOutputBuffer &out)
 		do {
 			canShow = true;
 			for (unsigned int j = 0; j < i; ++j) {
-				itemLabel &a = labelQueue[i];
-				itemLabel &b = labelQueue[j];
-				if (abs(b.pos.y - a.pos.y) < height + borderY) {
-					int widthA = a.width + borderX + marginX * 2;
-					int widthB = b.width + borderX + marginX * 2;
+				ItemLabel &a = labelQueue[i];
+				ItemLabel &b = labelQueue[j];
+				if (abs(b.pos.y - a.pos.y) < Height + BorderY) {
+					int widthA = a.width + BorderX + MarginX * 2;
+					int widthB = b.width + BorderX + MarginX * 2;
 					int newpos = b.pos.x;
 					if (b.pos.x >= a.pos.x && b.pos.x - a.pos.x < widthA) {
 						newpos -= widthA;
@@ -145,22 +145,21 @@ void DrawItemNameLabels(const CelOutputBuffer &out)
 		} while (!canShow);
 	}
 
-	for (const itemLabel &label : labelQueue) {
-		ItemStruct &itm = items[label.id];
+	for (const ItemLabel &label : labelQueue) {
+		Item &item = Items[label.id];
 
-		if (MousePosition.x >= label.pos.x && MousePosition.x < label.pos.x + label.width && MousePosition.y >= label.pos.y - height + marginY && MousePosition.y < label.pos.y + marginY) {
-			if (!gmenu_is_active() && PauseMode == 0 && !deathflag && IsMouseOverGameArea()) {
+		if (MousePosition.x >= label.pos.x && MousePosition.x < label.pos.x + label.width && MousePosition.y >= label.pos.y + MarginY && MousePosition.y < label.pos.y + MarginY + Height) {
+			if (!gmenu_is_active() && PauseMode == 0 && !MyPlayerIsDead && IsMouseOverGameArea()) {
 				isLabelHighlighted = true;
-				cursmx = itm.position.x;
-				cursmy = itm.position.y;
+				cursPosition = item.position;
 				pcursitem = label.id;
 			}
 		}
 		if (pcursitem == label.id)
-			FillRect(out, label.pos.x, label.pos.y - height + marginY, label.width, height, PAL8_BLUE + 6);
+			FillRect(out, label.pos.x, label.pos.y + MarginY, label.width, Height, PAL8_BLUE + 6);
 		else
-			DrawHalfTransparentRectTo(out, label.pos.x, label.pos.y - height + marginY, label.width, height);
-		DrawString(out, label.text.c_str(), { label.pos.x + marginX, label.pos.y, label.width, height }, itm.getTextColor());
+			DrawHalfTransparentRectTo(out, label.pos.x, label.pos.y + MarginY, label.width, Height);
+		DrawString(out, label.text, { { label.pos.x + MarginX, label.pos.y }, { label.width, Height } }, item.getTextColor());
 	}
 	labelQueue.clear();
 }

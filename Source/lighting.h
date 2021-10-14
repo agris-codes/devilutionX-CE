@@ -26,32 +26,30 @@ struct LightPosition {
 	Point old;
 };
 
-struct LightListStruct {
+struct Light {
 	LightPosition position;
 	int _lradius;
 	int _lid;
 	bool _ldel;
 	bool _lunflag;
-	int oldRadious;
+	int oldRadius;
 	bool _lflags;
 };
 
-extern LightListStruct VisionList[MAXVISION];
-extern uint8_t lightactive[MAXLIGHTS];
-extern LightListStruct LightList[MAXLIGHTS];
-extern int numlights;
-extern int numvision;
-extern char lightmax;
-extern bool dolighting;
-extern int visionid;
-extern std::array<BYTE, LIGHTSIZE> pLightTbl;
-extern bool lightflag;
+extern Light VisionList[MAXVISION];
+extern int VisionCount;
+extern int VisionId;
+extern Light Lights[MAXLIGHTS];
+extern uint8_t ActiveLights[MAXLIGHTS];
+extern int ActiveLightCount;
+extern char LightsMax;
+extern std::array<uint8_t, LIGHTSIZE> LightTables;
+extern bool DisableLighting;
+extern bool UpdateLighting;
 
 void DoLighting(Point position, int nRadius, int Lnum);
 void DoUnVision(Point position, int nRadius);
 void DoVision(Point position, int nRadius, bool doautomap, bool visible);
-void FreeLightTable();
-void InitLightTable();
 void MakeLightTable();
 #ifdef _DEBUG
 void ToggleLighting();
@@ -62,7 +60,7 @@ int AddLight(Point position, int r);
 void AddUnLight(int i);
 void ChangeLightRadius(int i, int r);
 void ChangeLightXY(int i, Point position);
-void ChangeLightOff(int i, Point position);
+void ChangeLightOffset(int i, Point position);
 void ChangeLight(int i, Point position, int r);
 void ProcessLightList();
 void SavePreLighting();
@@ -75,7 +73,8 @@ void lighting_color_cycling();
 
 /* rdata */
 
-extern const char CrawlTable[2749];
-extern const BYTE vCrawlTable[23][30];
+extern const int8_t CrawlTable[2749];
+extern const int CrawlNum[19];
+extern const uint8_t VisionCrawlTable[23][30];
 
 } // namespace devilution

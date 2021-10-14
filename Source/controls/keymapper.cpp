@@ -10,15 +10,13 @@
 #include "utils/sdl2_to_1_2_backports.h"
 #endif
 
-#include "../control.h"
-#include "../miniwin/miniwin.h"
+#include "control.h"
+#include "options.h"
 #include "utils/log.hpp"
 
 namespace devilution {
 
-Keymapper::Keymapper(SetConfigKeyFunction setKeyFunction, GetConfigKeyFunction getKeyFunction)
-    : setKeyFunction(std::move(setKeyFunction))
-    , getKeyFunction(std::move(getKeyFunction))
+Keymapper::Keymapper()
 {
 	// Insert all supported keys: a-z, 0-9 and F1-F12.
 	keyIDToKeyName.reserve(('Z' - 'A' + 1) + ('9' - '0' + 1) + 12);
@@ -38,14 +36,14 @@ Keymapper::Keymapper(SetConfigKeyFunction setKeyFunction, GetConfigKeyFunction g
 	}
 }
 
-Keymapper::ActionIndex Keymapper::addAction(const Action &action)
+Keymapper::ActionIndex Keymapper::AddAction(const Action &action)
 {
 	actions.emplace_back(action);
 
 	return actions.size() - 1;
 }
 
-void Keymapper::keyPressed(int key) const
+void Keymapper::KeyPressed(int key) const
 {
 	auto it = keyIDToAction.find(key);
 	if (it == keyIDToAction.end())
@@ -61,7 +59,7 @@ void Keymapper::keyPressed(int key) const
 	action();
 }
 
-std::string Keymapper::keyNameForAction(ActionIndex actionIndex) const
+std::string Keymapper::KeyNameForAction(ActionIndex actionIndex) const
 {
 	assert(actionIndex < actions.size());
 	auto key = actions[actionIndex].key;
@@ -70,13 +68,13 @@ std::string Keymapper::keyNameForAction(ActionIndex actionIndex) const
 	return it->second;
 }
 
-void Keymapper::save() const
+void Keymapper::Save() const
 {
 	// Use the action vector to go though the actions to keep the same order.
 	for (const auto &action : actions) {
 		if (action.key == DVL_VK_INVALID) {
 			// Just add an empty config entry if the action is unbound.
-			setKeyFunction(action.name, "");
+			SetIniValue("Keymapping", action.name.c_str(), "");
 			continue;
 		}
 
@@ -85,16 +83,16 @@ void Keymapper::save() const
 			Log("Keymapper: no name found for key '{}'", action.key);
 			continue;
 		}
-		setKeyFunction(action.name, keyNameIt->second);
+		SetIniValue("Keymapping", action.name.c_str(), keyNameIt->second.c_str());
 	}
 }
 
-void Keymapper::load()
+void Keymapper::Load()
 {
 	keyIDToAction.clear();
 
 	for (auto &action : actions) {
-		auto key = getActionKey(action);
+		auto key = GetActionKey(action);
 		action.key = key;
 		if (key == DVL_VK_INVALID) {
 			// Skip if the action has no key bound to it.
@@ -106,11 +104,15 @@ void Keymapper::load()
 	}
 }
 
-int Keymapper::getActionKey(const Keymapper::Action &action)
+int Keymapper::GetActionKey(const Keymapper::Action &action)
 {
-	auto key = getKeyFunction(action.name);
-	if (key.empty())
+	std::array<char, 64> result;
+	if (!GetIniValue("Keymapping", action.name.c_str(), result.data(), result.size()))
 		return action.defaultKey; // Return the default key if no key has been set.
+
+	std::string key = result.data();
+	if (key.empty())
+		return DVL_VK_INVALID;
 
 	auto keyIt = keyNameToKeyID.find(key);
 	if (keyIt == keyNameToKeyID.end()) {

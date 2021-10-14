@@ -62,13 +62,13 @@ bool FileExists(const char *path)
 		return false;
 	}
 	return true;
-#elif _POSIX_C_SOURCE >= 200112L || defined(_BSD_SOURCE) || defined(__APPLE__)
+#elif (_POSIX_C_SOURCE >= 200112L || defined(_BSD_SOURCE) || defined(__APPLE__)) && !defined(__ANDROID__)
 	return ::access(path, F_OK) == 0;
 #else
-	FILE *file = std::fopen(path, "rb");
+	SDL_RWops *file = SDL_RWFromFile(path, "r+b");
 	if (file == NULL)
 		return false;
-	std::fclose(file);
+	SDL_RWclose(file);
 	return true;
 #endif
 }
@@ -99,7 +99,8 @@ bool GetFileSize(const char *path, std::uintmax_t *size)
 	if (!GetFileAttributesExW(&pathUtf16[0], GetFileExInfoStandard, &attr)) {
 		return false;
 	}
-	*size = (attr.nFileSizeHigh) << (sizeof(attr.nFileSizeHigh) * 8) | attr.nFileSizeLow;
+	// C4293 in msvc when shifting a 32 bit type by 32 bits.
+	*size = static_cast<std::uintmax_t>(attr.nFileSizeHigh) << (sizeof(attr.nFileSizeHigh) * 8) | attr.nFileSizeLow;
 	return true;
 #else
 	struct ::stat statResult;
@@ -163,17 +164,17 @@ void RemoveFile(const char *lpFileName)
 #endif
 }
 
-std::unique_ptr<std::fstream> CreateFileStream(const char *path, std::ios::openmode mode)
+std::optional<std::fstream> CreateFileStream(const char *path, std::ios::openmode mode)
 {
 #if defined(_WIN64) || defined(_WIN32)
 	const auto pathUtf16 = ToWideChar(path);
 	if (pathUtf16 == nullptr) {
 		LogError("UTF-8 -> UTF-16 conversion error code {}", ::GetLastError());
-		return nullptr;
+		return {};
 	}
-	return std::make_unique<std::fstream>(pathUtf16.get(), mode);
+	return { std::fstream(pathUtf16.get(), mode) };
 #else
-	return std::make_unique<std::fstream>(path, mode);
+	return { std::fstream(path, mode) };
 #endif
 }
 

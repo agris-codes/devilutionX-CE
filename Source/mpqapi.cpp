@@ -6,7 +6,6 @@
 #include "mpqapi.h"
 
 #include <cerrno>
-#include <cinttypes>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -25,7 +24,7 @@ namespace devilution {
 
 #define INDEX_ENTRIES 2048
 
-// Amiga cannot seekp beyond EOF.
+// Amiga cannot Seekp beyond EOF.
 // See https://github.com/bebbo/libnix/issues/30
 #ifndef __AMIGA__
 #define CAN_SEEKP_BEYOND_EOF
@@ -36,22 +35,22 @@ namespace {
 // Validates that a Type is of a particular size and that its alignment is <= the size of the type.
 // Done with templates so that error messages include actual size.
 template <std::size_t A, std::size_t B>
-struct assert_eq : std::true_type {
+struct AssertEq : std::true_type {
 	static_assert(A == B, "A == B not satisfied");
 };
 template <std::size_t A, std::size_t B>
-struct assert_lte : std::true_type {
+struct AssertLte : std::true_type {
 	static_assert(A <= B, "A <= B not satisfied");
 };
 template <typename T, std::size_t S>
-struct check_size : assert_eq<sizeof(T), S>, assert_lte<alignof(T), sizeof(T)> {
+struct CheckSize : AssertEq<sizeof(T), S>, AssertLte<alignof(T), sizeof(T)> {
 };
 
 // Check sizes and alignments of the structs that we decrypt and encrypt.
 // The decryption algorithm treats them as a stream of 32-bit uints, so the
 // sizes must be exact as there cannot be any padding.
-static_assert(check_size<_HASHENTRY, 4 * 4>::value, "sizeof(_HASHENTRY) == 4 * 4 && alignof(_HASHENTRY) <= 4 * 4 not satisfied");
-static_assert(check_size<_BLOCKENTRY, 4 * 4>::value, "sizeof(_BLOCKENTRY) == 4 * 4 && alignof(_BLOCKENTRY) <= 4 * 4 not satisfied");
+static_assert(CheckSize<_HASHENTRY, 4 * 4>::value, "sizeof(_HASHENTRY) == 4 * 4 && alignof(_HASHENTRY) <= 4 * 4 not satisfied");
+static_assert(CheckSize<_BLOCKENTRY, 4 * 4>::value, "sizeof(_BLOCKENTRY) == 4 * 4 && alignof(_BLOCKENTRY) <= 4 * 4 not satisfied");
 
 const char *DirToString(std::ios::seekdir dir)
 {
@@ -92,65 +91,47 @@ public:
 	bool Open(const char *path, std::ios::openmode mode)
 	{
 		s_ = CreateFileStream(path, mode);
-		return CheckError("new std::fstream(\"%s\", %s)", path, OpenModeToString(mode).c_str());
+		return CheckError("new std::fstream(\"{}\", {})", path, OpenModeToString(mode).c_str());
 	}
 
 	void Close()
 	{
-		s_ = nullptr;
+		s_ = std::nullopt;
 	}
 
 	[[nodiscard]] bool IsOpen() const
 	{
-		return s_ != nullptr;
+		return s_ != std::nullopt;
 	}
 
-	bool seekg(std::streampos pos)
-	{
-		s_->seekg(pos);
-		return CheckError("seekg(%" PRIuMAX ")", static_cast<std::uintmax_t>(pos));
-	}
-
-	bool seekg(std::streamoff pos, std::ios::seekdir dir)
-	{
-		s_->seekg(pos, dir);
-		return CheckError("seekg(%" PRIdMAX ", %s)", static_cast<std::intmax_t>(pos), DirToString(dir));
-	}
-
-	bool seekp(std::streampos pos)
+	bool Seekp(std::streampos pos)
 	{
 		s_->seekp(pos);
-		return CheckError("seekp(%" PRIuMAX ")", static_cast<std::uintmax_t>(pos));
+		return CheckError("seekp({})", pos);
 	}
 
-	bool seekp(std::streamoff pos, std::ios::seekdir dir)
+	bool Seekp(std::streamoff pos, std::ios::seekdir dir)
 	{
 		s_->seekp(pos, dir);
-		return CheckError("seekp(%" PRIdMAX ", %s)", static_cast<std::intmax_t>(pos), DirToString(dir));
+		return CheckError("seekp({}, {})", pos, DirToString(dir));
 	}
 
-	bool tellg(std::streampos *result)
-	{
-		*result = s_->tellg();
-		return CheckError("tellg() = %" PRIuMAX, static_cast<std::uintmax_t>(*result));
-	}
-
-	bool tellp(std::streampos *result)
+	bool Tellp(std::streampos *result)
 	{
 		*result = s_->tellp();
-		return CheckError("tellp() = %" PRIuMAX, static_cast<std::uintmax_t>(*result));
+		return CheckError("tellp() = {}", *result);
 	}
 
-	bool write(const char *data, std::streamsize size)
+	bool Write(const char *data, std::streamsize size)
 	{
 		s_->write(data, size);
-		return CheckError("write(data, %" PRIuMAX ")", static_cast<std::uintmax_t>(size));
+		return CheckError("write(data, {})", size);
 	}
 
-	bool read(char *out, std::streamsize size)
+	bool Read(char *out, std::streamsize size)
 	{
 		s_->read(out, size);
-		return CheckError("read(out, %" PRIuMAX ")", static_cast<std::uintmax_t>(size));
+		return CheckError("read(out, {})", size);
 	}
 
 private:
@@ -158,21 +139,19 @@ private:
 	bool CheckError(const char *fmt, PrintFArgs... args)
 	{
 		if (s_->fail()) {
-			std::string fmt_with_error = fmt;
-			fmt_with_error.append(": failed with \"{}\"");
-			const char *error_message = std::strerror(errno);
-			if (error_message == nullptr)
-				error_message = "";
-			LogError(LogCategory::System, fmt_with_error.c_str(), args..., error_message);
-#ifdef _DEBUG
+			std::string fmtWithError = fmt;
+			fmtWithError.append(": failed with \"{}\"");
+			const char *errorMessage = std::strerror(errno);
+			if (errorMessage == nullptr)
+				errorMessage = "";
+			LogError(LogCategory::System, fmtWithError.c_str(), args..., errorMessage);
 		} else {
 			LogVerbose(LogCategory::System, fmt, args...);
-#endif
 		}
 		return !s_->fail();
 	}
 
-	std::unique_ptr<std::fstream> s_;
+	std::optional<std::fstream> s_;
 };
 
 constexpr std::size_t BlockEntrySize = INDEX_ENTRIES * sizeof(_BLOCKENTRY);
@@ -194,55 +173,47 @@ struct Archive {
 	_HASHENTRY *sgpHashTbl;
 	_BLOCKENTRY *sgpBlockTbl;
 
-	bool Open(const char *name)
+	bool Open(const char *path)
 	{
 		Close();
-#ifdef _DEBUG
-		Log("Opening {}", name);
-#endif
-		exists = FileExists(name);
+		LogDebug("Opening {}", path);
+		exists = FileExists(path);
 		std::ios::openmode mode = std::ios::in | std::ios::out | std::ios::binary;
 		if (exists) {
-			if (!GetFileSize(name, &size)) {
-				Log(R"(GetFileSize("{}") failed with "{}")", name, std::strerror(errno));
+			if (!GetFileSize(path, &size)) {
+				Log(R"(GetFileSize("{}") failed with "{}")", path, std::strerror(errno));
 				return false;
 			}
-#ifdef _DEBUG
-			Log("GetFileSize(\"{}\") = {}", name, size);
-#endif
+			LogDebug("GetFileSize(\"{}\") = {}", path, size);
 		} else {
 			mode |= std::ios::trunc;
 		}
-		if (!stream.Open(name, mode)) {
+		if (!stream.Open(path, mode)) {
 			stream.Close();
 			return false;
 		}
 		modified = !exists;
 
-		this->name = name;
+		name = path;
 		return true;
 	}
 
-	bool Close(bool clear_tables = true)
+	bool Close(bool clearTables = true)
 	{
 		if (!stream.IsOpen())
 			return true;
-#ifdef _DEBUG
-		Log("Closing {}", name);
-#endif
+		LogDebug("Closing {}", name);
 
 		bool result = true;
-		if (modified && !(stream.seekp(0, std::ios::beg) && WriteHeaderAndTables()))
+		if (modified && !(stream.Seekp(0, std::ios::beg) && WriteHeaderAndTables()))
 			result = false;
 		stream.Close();
 		if (modified && result && size != 0) {
-#ifdef _DEBUG
-			Log("ResizeFile(\"{}\", {})", name, size);
-#endif
+			LogDebug("ResizeFile(\"{}\", {})", name, size);
 			result = ResizeFile(name.c_str(), size);
 		}
 		name.clear();
-		if (clear_tables) {
+		if (clearTables) {
 			delete[] sgpHashTbl;
 			sgpHashTbl = nullptr;
 			delete[] sgpBlockTbl;
@@ -277,13 +248,13 @@ private:
 		fhdr.hashcount = SDL_SwapLE32(INDEX_ENTRIES);
 		fhdr.blockcount = SDL_SwapLE32(INDEX_ENTRIES);
 
-		return stream.write(reinterpret_cast<const char *>(&fhdr), sizeof(fhdr));
+		return stream.Write(reinterpret_cast<const char *>(&fhdr), sizeof(fhdr));
 	}
 
 	bool WriteBlockTable()
 	{
 		Encrypt((DWORD *)sgpBlockTbl, BlockEntrySize, Hash("(block table)", 3));
-		const bool success = stream.write(reinterpret_cast<const char *>(sgpBlockTbl), BlockEntrySize);
+		const bool success = stream.Write(reinterpret_cast<const char *>(sgpBlockTbl), BlockEntrySize);
 		Decrypt((DWORD *)sgpBlockTbl, BlockEntrySize, Hash("(block table)", 3));
 		return success;
 	}
@@ -291,7 +262,7 @@ private:
 	bool WriteHashTable()
 	{
 		Encrypt((DWORD *)sgpHashTbl, HashEntrySize, Hash("(hash table)", 3));
-		const bool success = stream.write(reinterpret_cast<const char *>(sgpHashTbl), HashEntrySize);
+		const bool success = stream.Write(reinterpret_cast<const char *>(sgpHashTbl), HashEntrySize);
 		Decrypt((DWORD *)sgpHashTbl, HashEntrySize, Hash("(hash table)", 3));
 		return success;
 	}
@@ -338,25 +309,23 @@ bool IsValidMPQHeader(const Archive &archive, _FILEHEADER *hdr)
 
 bool ReadMPQHeader(Archive *archive, _FILEHEADER *hdr)
 {
-	const bool has_hdr = archive->size >= sizeof(*hdr);
-	if (has_hdr) {
-		if (!archive->stream.read(reinterpret_cast<char *>(hdr), sizeof(*hdr)))
+	const bool hasHdr = archive->size >= sizeof(*hdr);
+	if (hasHdr) {
+		if (!archive->stream.Read(reinterpret_cast<char *>(hdr), sizeof(*hdr)))
 			return false;
 		ByteSwapHdr(hdr);
 	}
-	if (!has_hdr || !IsValidMPQHeader(*archive, hdr)) {
+	if (!hasHdr || !IsValidMPQHeader(*archive, hdr)) {
 		InitDefaultMpqHeader(archive, hdr);
 	}
 	return true;
 }
 
-} // namespace
-
-static _BLOCKENTRY *mpqapi_new_block(int *block_index)
+_BLOCKENTRY *NewBlock(int *blockIndex)
 {
 	_BLOCKENTRY *blockEntry = cur_archive.sgpBlockTbl;
 
-	for (DWORD i = 0; i < INDEX_ENTRIES; i++, blockEntry++) {
+	for (int i = 0; i < INDEX_ENTRIES; i++, blockEntry++) {
 		if (blockEntry->offset != 0)
 			continue;
 		if (blockEntry->sizealloc != 0)
@@ -366,8 +335,8 @@ static _BLOCKENTRY *mpqapi_new_block(int *block_index)
 		if (blockEntry->sizefile != 0)
 			continue;
 
-		if (block_index != nullptr)
-			*block_index = i;
+		if (blockIndex != nullptr)
+			*blockIndex = i;
 
 		return blockEntry;
 	}
@@ -375,7 +344,7 @@ static _BLOCKENTRY *mpqapi_new_block(int *block_index)
 	app_fatal("Out of free block entries");
 }
 
-void mpqapi_alloc_block(uint32_t block_offset, uint32_t block_size)
+void AllocBlock(uint32_t blockOffset, uint32_t blockSize)
 {
 	_BLOCKENTRY *block;
 	int i;
@@ -384,37 +353,37 @@ void mpqapi_alloc_block(uint32_t block_offset, uint32_t block_size)
 	i = INDEX_ENTRIES;
 	while (i-- != 0) {
 		if (block->offset != 0 && block->flags == 0 && block->sizefile == 0) {
-			if (block->offset + block->sizealloc == block_offset) {
-				block_offset = block->offset;
-				block_size += block->sizealloc;
+			if (block->offset + block->sizealloc == blockOffset) {
+				blockOffset = block->offset;
+				blockSize += block->sizealloc;
 				memset(block, 0, sizeof(_BLOCKENTRY));
-				mpqapi_alloc_block(block_offset, block_size);
+				AllocBlock(blockOffset, blockSize);
 				return;
 			}
-			if (block_offset + block_size == block->offset) {
-				block_size += block->sizealloc;
+			if (blockOffset + blockSize == block->offset) {
+				blockSize += block->sizealloc;
 				memset(block, 0, sizeof(_BLOCKENTRY));
-				mpqapi_alloc_block(block_offset, block_size);
+				AllocBlock(blockOffset, blockSize);
 				return;
 			}
 		}
 		block++;
 	}
-	if (block_offset + block_size > cur_archive.size) {
+	if (blockOffset + blockSize > cur_archive.size) {
 		app_fatal("MPQ free list error");
 	}
-	if (block_offset + block_size == cur_archive.size) {
-		cur_archive.size = block_offset;
+	if (blockOffset + blockSize == cur_archive.size) {
+		cur_archive.size = blockOffset;
 	} else {
-		block = mpqapi_new_block(nullptr);
-		block->offset = block_offset;
-		block->sizealloc = block_size;
+		block = NewBlock(nullptr);
+		block->offset = blockOffset;
+		block->sizealloc = blockSize;
 		block->sizefile = 0;
 		block->flags = 0;
 	}
 }
 
-int mpqapi_find_free_block(uint32_t size, uint32_t *block_size)
+int FindFreeBlock(uint32_t size, uint32_t *blockSize)
 {
 	int result;
 
@@ -426,11 +395,11 @@ int mpqapi_find_free_block(uint32_t size, uint32_t *block_size)
 			continue;
 		if (pBlockTbl->sizefile != 0)
 			continue;
-		if ((DWORD)pBlockTbl->sizealloc < size)
+		if (pBlockTbl->sizealloc < size)
 			continue;
 
 		result = pBlockTbl->offset;
-		*block_size = size;
+		*blockSize = size;
 		pBlockTbl->offset += size;
 		pBlockTbl->sizealloc -= size;
 
@@ -440,23 +409,21 @@ int mpqapi_find_free_block(uint32_t size, uint32_t *block_size)
 		return result;
 	}
 
-	*block_size = size;
+	*blockSize = size;
 	result = cur_archive.size;
 	cur_archive.size += size;
 	return result;
 }
 
-static int mpqapi_get_hash_index(int index, uint32_t hash_a, uint32_t hash_b)
+int GetHashIndex(int index, uint32_t hashA, uint32_t hashB)
 {
-	DWORD idx, i;
-
-	i = INDEX_ENTRIES;
-	for (idx = index & 0x7FF; cur_archive.sgpHashTbl[idx].block != -1; idx = (idx + 1) & 0x7FF) {
+	int i = INDEX_ENTRIES;
+	for (int idx = index & 0x7FF; cur_archive.sgpHashTbl[idx].block != -1; idx = (idx + 1) & 0x7FF) {
 		if (i-- == 0)
 			break;
-		if (cur_archive.sgpHashTbl[idx].hashcheck[0] != hash_a)
+		if (cur_archive.sgpHashTbl[idx].hashcheck[0] != hashA)
 			continue;
-		if (cur_archive.sgpHashTbl[idx].hashcheck[1] != hash_b)
+		if (cur_archive.sgpHashTbl[idx].hashcheck[1] != hashB)
 			continue;
 		if (cur_archive.sgpHashTbl[idx].block == -2)
 			continue;
@@ -467,28 +434,139 @@ static int mpqapi_get_hash_index(int index, uint32_t hash_a, uint32_t hash_b)
 	return -1;
 }
 
-static int FetchHandle(const char *pszName)
+int FetchHandle(const char *pszName)
 {
-	return mpqapi_get_hash_index(Hash(pszName, 0), Hash(pszName, 1), Hash(pszName, 2));
+	return GetHashIndex(Hash(pszName, 0), Hash(pszName, 1), Hash(pszName, 2));
 }
+
+_BLOCKENTRY *AddFile(const char *pszName, _BLOCKENTRY *pBlk, int blockIndex)
+{
+	uint32_t h1 = Hash(pszName, 0);
+	uint32_t h2 = Hash(pszName, 1);
+	uint32_t h3 = Hash(pszName, 2);
+	if (GetHashIndex(h1, h2, h3) != -1)
+		app_fatal("Hash collision between \"%s\" and existing file\n", pszName);
+	unsigned int hIdx = h1 & 0x7FF;
+
+	bool hasSpace = false;
+	for (int i = 0; i < INDEX_ENTRIES; i++) {
+		if (cur_archive.sgpHashTbl[hIdx].block == -1 || cur_archive.sgpHashTbl[hIdx].block == -2) {
+			hasSpace = true;
+			break;
+		}
+		hIdx = (hIdx + 1) & 0x7FF;
+	}
+	if (!hasSpace)
+		app_fatal("Out of hash space");
+
+	if (pBlk == nullptr)
+		pBlk = NewBlock(&blockIndex);
+
+	cur_archive.sgpHashTbl[hIdx].hashcheck[0] = h2;
+	cur_archive.sgpHashTbl[hIdx].hashcheck[1] = h3;
+	cur_archive.sgpHashTbl[hIdx].lcid = 0;
+	cur_archive.sgpHashTbl[hIdx].block = blockIndex;
+
+	return pBlk;
+}
+
+bool WriteFileContents(const char *pszName, const byte *pbData, size_t dwLen, _BLOCKENTRY *pBlk)
+{
+	const char *tmp;
+	while ((tmp = strchr(pszName, ':')) != nullptr)
+		pszName = tmp + 1;
+	while ((tmp = strchr(pszName, '\\')) != nullptr)
+		pszName = tmp + 1;
+	Hash(pszName, 3);
+
+	constexpr size_t SectorSize = 4096;
+	const uint32_t numSectors = (dwLen + (SectorSize - 1)) / SectorSize;
+	const uint32_t offsetTableByteSize = sizeof(uint32_t) * (numSectors + 1);
+	pBlk->offset = FindFreeBlock(dwLen + offsetTableByteSize, &pBlk->sizealloc);
+	pBlk->sizefile = dwLen;
+	pBlk->flags = 0x80000100;
+
+	// We populate the table of sector offset while we write the data.
+	// We can't pre-populate it because we don't know the compressed sector sizes yet.
+	// First offset is the start of the first sector, last offset is the end of the last sector.
+	std::unique_ptr<uint32_t[]> sectoroffsettable { new uint32_t[numSectors + 1] };
+
+#ifdef CAN_SEEKP_BEYOND_EOF
+	if (!cur_archive.stream.Seekp(pBlk->offset + offsetTableByteSize, std::ios::beg))
+		return false;
+#else
+	// Ensure we do not Seekp beyond EOF by filling the missing space.
+	std::streampos stream_end;
+	if (!cur_archive.stream.Seekp(0, std::ios::end) || !cur_archive.stream.Tellp(&stream_end))
+		return false;
+	const std::uintmax_t cur_size = stream_end - cur_archive.stream_begin;
+	if (cur_size < pBlk->offset + offsetTableByteSize) {
+		if (cur_size < pBlk->offset) {
+			std::unique_ptr<char[]> filler { new char[pBlk->offset - cur_size] };
+			if (!cur_archive.stream.Write(filler.get(), pBlk->offset - cur_size))
+				return false;
+		}
+		if (!cur_archive.stream.Write(reinterpret_cast<const char *>(sectoroffsettable.get()), offsetTableByteSize))
+			return false;
+	} else {
+		if (!cur_archive.stream.Seekp(pBlk->offset + offsetTableByteSize, std::ios::beg))
+			return false;
+	}
+#endif
+
+	uint32_t destsize = offsetTableByteSize;
+	byte mpqBuf[SectorSize];
+	std::size_t curSector = 0;
+	while (true) {
+		uint32_t len = std::min(dwLen, SectorSize);
+		memcpy(mpqBuf, pbData, len);
+		pbData += len;
+		len = PkwareCompress(mpqBuf, len);
+		if (!cur_archive.stream.Write((char *)mpqBuf, len))
+			return false;
+		sectoroffsettable[curSector++] = SDL_SwapLE32(destsize);
+		destsize += len; // compressed length
+		if (dwLen > SectorSize)
+			dwLen -= SectorSize;
+		else
+			break;
+	}
+
+	sectoroffsettable[numSectors] = SDL_SwapLE32(destsize);
+	if (!cur_archive.stream.Seekp(pBlk->offset, std::ios::beg))
+		return false;
+	if (!cur_archive.stream.Write(reinterpret_cast<const char *>(sectoroffsettable.get()), offsetTableByteSize))
+		return false;
+	if (!cur_archive.stream.Seekp(destsize - offsetTableByteSize, std::ios::cur))
+		return false;
+
+	if (destsize < pBlk->sizealloc) {
+		const uint32_t blockSize = pBlk->sizealloc - destsize;
+		if (blockSize >= 1024) {
+			pBlk->sizealloc = destsize;
+			AllocBlock(pBlk->sizealloc + pBlk->offset, blockSize);
+		}
+	}
+	return true;
+}
+
+} // namespace
 
 void mpqapi_remove_hash_entry(const char *pszName)
 {
-	_HASHENTRY *pHashTbl;
-	_BLOCKENTRY *blockEntry;
-	int hIdx, block_offset, block_size;
-
-	hIdx = FetchHandle(pszName);
-	if (hIdx != -1) {
-		pHashTbl = &cur_archive.sgpHashTbl[hIdx];
-		blockEntry = &cur_archive.sgpBlockTbl[pHashTbl->block];
-		pHashTbl->block = -2;
-		block_offset = blockEntry->offset;
-		block_size = blockEntry->sizealloc;
-		memset(blockEntry, 0, sizeof(*blockEntry));
-		mpqapi_alloc_block(block_offset, block_size);
-		cur_archive.modified = true;
+	int hIdx = FetchHandle(pszName);
+	if (hIdx == -1) {
+		return;
 	}
+
+	_HASHENTRY *pHashTbl = &cur_archive.sgpHashTbl[hIdx];
+	_BLOCKENTRY *blockEntry = &cur_archive.sgpBlockTbl[pHashTbl->block];
+	pHashTbl->block = -2;
+	int blockOffset = blockEntry->offset;
+	int blockSize = blockEntry->sizealloc;
+	memset(blockEntry, 0, sizeof(*blockEntry));
+	AllocBlock(blockOffset, blockSize);
+	cur_archive.modified = true;
 }
 
 void mpqapi_remove_hash_entries(bool (*fnGetName)(uint8_t, char *))
@@ -500,128 +578,14 @@ void mpqapi_remove_hash_entries(bool (*fnGetName)(uint8_t, char *))
 	}
 }
 
-static _BLOCKENTRY *mpqapi_add_file(const char *pszName, _BLOCKENTRY *pBlk, int block_index)
-{
-	DWORD h1, h2, h3;
-	int hIdx;
-
-	h1 = Hash(pszName, 0);
-	h2 = Hash(pszName, 1);
-	h3 = Hash(pszName, 2);
-	if (mpqapi_get_hash_index(h1, h2, h3) != -1)
-		app_fatal("Hash collision between \"%s\" and existing file\n", pszName);
-	hIdx = h1 & 0x7FF;
-
-	bool hasSpace = false;
-	for (int i = 0; i < INDEX_ENTRIES; i++) {
-		if (cur_archive.sgpHashTbl[hIdx].block == -1 || cur_archive.sgpHashTbl[hIdx].block == -2) {
-			hasSpace = true;
-			break;
-        }
-		hIdx = (hIdx + 1) & 0x7FF;
-	}
-	if (!hasSpace)
-		app_fatal("Out of hash space");
-
-	if (pBlk == nullptr)
-		pBlk = mpqapi_new_block(&block_index);
-
-	cur_archive.sgpHashTbl[hIdx].hashcheck[0] = h2;
-	cur_archive.sgpHashTbl[hIdx].hashcheck[1] = h3;
-	cur_archive.sgpHashTbl[hIdx].lcid = 0;
-	cur_archive.sgpHashTbl[hIdx].block = block_index;
-
-	return pBlk;
-}
-
-static bool mpqapi_write_file_contents(const char *pszName, const byte *pbData, size_t dwLen, _BLOCKENTRY *pBlk)
-{
-	const char *tmp;
-	while ((tmp = strchr(pszName, ':')) != nullptr)
-		pszName = tmp + 1;
-	while ((tmp = strchr(pszName, '\\')) != nullptr)
-		pszName = tmp + 1;
-	Hash(pszName, 3);
-
-	constexpr size_t sectorSize = 4096;
-	const uint32_t num_sectors = (dwLen + (sectorSize - 1)) / sectorSize;
-	const uint32_t offset_table_bytesize = sizeof(uint32_t) * (num_sectors + 1);
-	pBlk->offset = mpqapi_find_free_block(dwLen + offset_table_bytesize, &pBlk->sizealloc);
-	pBlk->sizefile = dwLen;
-	pBlk->flags = 0x80000100;
-
-	// We populate the table of sector offset while we write the data.
-	// We can't pre-populate it because we don't know the compressed sector sizes yet.
-	// First offset is the start of the first sector, last offset is the end of the last sector.
-	std::unique_ptr<uint32_t[]> sectoroffsettable { new uint32_t[num_sectors + 1] };
-
-#ifdef CAN_SEEKP_BEYOND_EOF
-	if (!cur_archive.stream.seekp(pBlk->offset + offset_table_bytesize, std::ios::beg))
-		return false;
-#else
-	// Ensure we do not seekp beyond EOF by filling the missing space.
-	std::streampos stream_end;
-	if (!cur_archive.stream.seekp(0, std::ios::end) || !cur_archive.stream.tellp(&stream_end))
-		return false;
-	const std::uintmax_t cur_size = stream_end - cur_archive.stream_begin;
-	if (cur_size < pBlk->offset + offset_table_bytesize) {
-		if (cur_size < pBlk->offset) {
-			std::unique_ptr<char[]> filler { new char[pBlk->offset - cur_size] };
-			if (!cur_archive.stream.write(filler.get(), pBlk->offset - cur_size))
-				return false;
-		}
-		if (!cur_archive.stream.write(reinterpret_cast<const char *>(sectoroffsettable.get()), offset_table_bytesize))
-			return false;
-	} else {
-		if (!cur_archive.stream.seekp(pBlk->offset + offset_table_bytesize, std::ios::beg))
-			return false;
-	}
-#endif
-
-	uint32_t destsize = offset_table_bytesize;
-	byte mpq_buf[sectorSize];
-	std::size_t cur_sector = 0;
-	while (true) {
-		uint32_t len = std::min(dwLen, sectorSize);
-		memcpy(mpq_buf, pbData, len);
-		pbData += len;
-		len = PkwareCompress(mpq_buf, len);
-		if (!cur_archive.stream.write((char *)mpq_buf, len))
-			return false;
-		sectoroffsettable[cur_sector++] = SDL_SwapLE32(destsize);
-		destsize += len; // compressed length
-		if (dwLen > sectorSize)
-			dwLen -= sectorSize;
-		else
-			break;
-	}
-
-	sectoroffsettable[num_sectors] = SDL_SwapLE32(destsize);
-	if (!cur_archive.stream.seekp(pBlk->offset, std::ios::beg))
-		return false;
-	if (!cur_archive.stream.write(reinterpret_cast<const char *>(sectoroffsettable.get()), offset_table_bytesize))
-		return false;
-	if (!cur_archive.stream.seekp(destsize - offset_table_bytesize, std::ios::cur))
-		return false;
-
-	if (destsize < pBlk->sizealloc) {
-		const uint32_t block_size = pBlk->sizealloc - destsize;
-		if (block_size >= 1024) {
-			pBlk->sizealloc = destsize;
-			mpqapi_alloc_block(pBlk->sizealloc + pBlk->offset, block_size);
-		}
-	}
-	return true;
-}
-
 bool mpqapi_write_file(const char *pszName, const byte *pbData, size_t dwLen)
 {
 	_BLOCKENTRY *blockEntry;
 
 	cur_archive.modified = true;
 	mpqapi_remove_hash_entry(pszName);
-	blockEntry = mpqapi_add_file(pszName, nullptr, 0);
-	if (!mpqapi_write_file_contents(pszName, pbData, dwLen, blockEntry)) {
+	blockEntry = AddFile(pszName, nullptr, 0);
+	if (!WriteFileContents(pszName, pbData, dwLen, blockEntry)) {
 		mpqapi_remove_hash_entry(pszName);
 		return false;
 	}
@@ -630,19 +594,17 @@ bool mpqapi_write_file(const char *pszName, const byte *pbData, size_t dwLen)
 
 void mpqapi_rename(char *pszOld, char *pszNew)
 {
-	int index, block;
-	_HASHENTRY *hashEntry;
-	_BLOCKENTRY *blockEntry;
-
-	index = FetchHandle(pszOld);
-	if (index != -1) {
-		hashEntry = &cur_archive.sgpHashTbl[index];
-		block = hashEntry->block;
-		blockEntry = &cur_archive.sgpBlockTbl[block];
-		hashEntry->block = -2;
-		mpqapi_add_file(pszNew, blockEntry, block);
-		cur_archive.modified = true;
+	int index = FetchHandle(pszOld);
+	if (index == -1) {
+		return;
 	}
+
+	_HASHENTRY *hashEntry = &cur_archive.sgpHashTbl[index];
+	int block = hashEntry->block;
+	_BLOCKENTRY *blockEntry = &cur_archive.sgpBlockTbl[block];
+	hashEntry->block = -2;
+	AddFile(pszNew, blockEntry, block);
+	cur_archive.modified = true;
 }
 
 bool mpqapi_has_file(const char *pszName)
@@ -652,10 +614,7 @@ bool mpqapi_has_file(const char *pszName)
 
 bool OpenMPQ(const char *pszArchive)
 {
-	DWORD key;
 	_FILEHEADER fhdr;
-
-	InitHash();
 
 	if (!cur_archive.Open(pszArchive)) {
 		return false;
@@ -669,29 +628,29 @@ bool OpenMPQ(const char *pszArchive)
 		cur_archive.sgpBlockTbl = new _BLOCKENTRY[BlockEntrySize / sizeof(_BLOCKENTRY)];
 		std::memset(cur_archive.sgpBlockTbl, 0, BlockEntrySize);
 		if (fhdr.blockcount > 0) {
-			if (!cur_archive.stream.read(reinterpret_cast<char *>(cur_archive.sgpBlockTbl), BlockEntrySize))
+			if (!cur_archive.stream.Read(reinterpret_cast<char *>(cur_archive.sgpBlockTbl), BlockEntrySize))
 				goto on_error;
-			key = Hash("(block table)", 3);
+			uint32_t key = Hash("(block table)", 3);
 			Decrypt((DWORD *)cur_archive.sgpBlockTbl, BlockEntrySize, key);
 		}
 		cur_archive.sgpHashTbl = new _HASHENTRY[HashEntrySize / sizeof(_HASHENTRY)];
 		std::memset(cur_archive.sgpHashTbl, 255, HashEntrySize);
 		if (fhdr.hashcount > 0) {
-			if (!cur_archive.stream.read(reinterpret_cast<char *>(cur_archive.sgpHashTbl), HashEntrySize))
+			if (!cur_archive.stream.Read(reinterpret_cast<char *>(cur_archive.sgpHashTbl), HashEntrySize))
 				goto on_error;
-			key = Hash("(hash table)", 3);
+			uint32_t key = Hash("(hash table)", 3);
 			Decrypt((DWORD *)cur_archive.sgpHashTbl, HashEntrySize, key);
 		}
 
 #ifndef CAN_SEEKP_BEYOND_EOF
-		if (!cur_archive.stream.seekp(0, std::ios::beg))
+		if (!cur_archive.stream.Seekp(0, std::ios::beg))
 			goto on_error;
 
 		// Memorize stream begin, we'll need it for calculations later.
-		if (!cur_archive.stream.tellp(&cur_archive.stream_begin))
+		if (!cur_archive.stream.Tellp(&cur_archive.stream_begin))
 			goto on_error;
 
-		// Write garbage header and tables because some platforms cannot `seekp` beyond EOF.
+		// Write garbage header and tables because some platforms cannot `Seekp` beyond EOF.
 		// The data is incorrect at this point, it will be overwritten on Close.
 		if (!cur_archive.exists)
 			cur_archive.WriteHeaderAndTables();
@@ -699,13 +658,13 @@ bool OpenMPQ(const char *pszArchive)
 	}
 	return true;
 on_error:
-	cur_archive.Close(/*clear_tables=*/true);
+	cur_archive.Close(/*clearTables=*/true);
 	return false;
 }
 
 bool mpqapi_flush_and_close(bool bFree)
 {
-	return cur_archive.Close(/*clear_tables=*/bFree);
+	return cur_archive.Close(/*clearTables=*/bFree);
 }
 
 } // namespace devilution

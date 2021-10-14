@@ -17,6 +17,7 @@
 #include "controls/game_controls.h"
 #include "options.h"
 #include "utils/log.hpp"
+#include "utils/sdl_wrap.h"
 
 #ifdef USE_SDL1
 #ifndef SDL1_VIDEO_MODE_BPP
@@ -29,7 +30,7 @@
 
 namespace devilution {
 
-extern SDL_Surface *renderer_texture_surface; /** defined in dx.cpp */
+extern SDLSurfaceUniquePtr RendererTextureSurface; /** defined in dx.cpp */
 
 Uint16 gnScreenWidth;
 Uint16 gnScreenHeight;
@@ -229,10 +230,7 @@ bool SpawnWindow(const char *lpWindowName)
 			ErrSdl();
 		}
 
-		texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, width, height);
-		if (texture == nullptr) {
-			ErrSdl();
-		}
+		texture = SDLWrap::CreateTexture(renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, width, height);
 
 		if (sgOptions.Graphics.bIntegerScaling && SDL_RenderSetIntegerScale(renderer, SDL_TRUE) < 0) {
 			ErrSdl();
@@ -259,11 +257,17 @@ bool SpawnWindow(const char *lpWindowName)
 SDL_Surface *GetOutputSurface()
 {
 #ifdef USE_SDL1
-	return SDL_GetVideoSurface();
+	SDL_Surface *ret = SDL_GetVideoSurface();
+	if (ret == nullptr)
+		ErrSdl();
+	return ret;
 #else
 	if (renderer != nullptr)
-		return renderer_texture_surface;
-	return SDL_GetWindowSurface(ghMainWnd);
+		return RendererTextureSurface.get();
+	SDL_Surface *ret = SDL_GetWindowSurface(ghMainWnd);
+	if (ret == nullptr)
+		ErrSdl();
+	return ret;
 #endif
 }
 
@@ -290,22 +294,20 @@ void ScaleOutputRect(SDL_Rect *rect)
 #ifdef USE_SDL1
 namespace {
 
-SDL_Surface *CreateScaledSurface(SDL_Surface *src)
+SDLSurfaceUniquePtr CreateScaledSurface(SDL_Surface *src)
 {
 	SDL_Rect stretched_rect = { 0, 0, static_cast<Uint16>(src->w), static_cast<Uint16>(src->h) };
 	ScaleOutputRect(&stretched_rect);
-	SDL_Surface *stretched = SDL_CreateRGBSurface(
+	SDLSurfaceUniquePtr stretched = SDLWrap::CreateRGBSurface(
 	    SDL_SWSURFACE, stretched_rect.w, stretched_rect.h, src->format->BitsPerPixel,
 	    src->format->Rmask, src->format->Gmask, src->format->Bmask, src->format->Amask);
 	if (SDL_HasColorKey(src)) {
-		SDL_SetColorKey(stretched, SDL_SRCCOLORKEY, src->format->colorkey);
+		SDL_SetColorKey(stretched.get(), SDL_SRCCOLORKEY, src->format->colorkey);
 		if (src->format->palette != NULL)
-			SDL_SetPalette(stretched, SDL_LOGPAL, src->format->palette->colors, 0, src->format->palette->ncolors);
+			SDL_SetPalette(stretched.get(), SDL_LOGPAL, src->format->palette->colors, 0, src->format->palette->ncolors);
 	}
-	if (SDL_SoftStretch((src), NULL, stretched, &stretched_rect) < 0) {
-		SDL_FreeSurface(stretched);
+	if (SDL_SoftStretch((src), NULL, stretched.get(), &stretched_rect) < 0)
 		ErrSdl();
-	}
 	return stretched;
 }
 
@@ -316,7 +318,7 @@ SDLSurfaceUniquePtr ScaleSurfaceToOutput(SDLSurfaceUniquePtr surface)
 {
 #ifdef USE_SDL1
 	if (OutputRequiresScaling())
-		return SDLSurfaceUniquePtr { CreateScaledSurface(surface.get()) };
+		return CreateScaledSurface(surface.get());
 #endif
 	return surface;
 }

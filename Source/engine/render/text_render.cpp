@@ -5,210 +5,211 @@
  */
 #include "text_render.hpp"
 
+#include <array>
+#include <unordered_map>
+#include <utility>
+
+#include "DiabloUI/art_draw.h"
+#include "DiabloUI/diabloui.h"
 #include "DiabloUI/ui_item.h"
 #include "cel_render.hpp"
 #include "engine.h"
 #include "engine/load_cel.hpp"
+#include "engine/load_file.hpp"
 #include "engine/point.hpp"
 #include "palette.h"
+#include "utils/display.h"
+#include "utils/sdl_compat.h"
+#include "utils/utf8.h"
 
 namespace devilution {
 
 namespace {
 
-/**
- * Maps ASCII character code to font index, as used by the
- * small, medium and large sized fonts; which corresponds to smaltext.cel,
- * medtexts.cel and bigtgold.cel respectively.
- */
-const uint8_t FontIndex[256] = {
-	// clang-format off
-	'\0', 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-	0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
-	' ',  '!',  '\"', '#',  '$',  '%',  '&',  '\'', '(',  ')',  '*',  '+',  ',',  '-',  '.',  '/',
-	'0',  '1',  '2',  '3',  '4',  '5',  '6',  '7',  '8',  '9',  ':',  ';',  '<',  '=',  '>',  '?',
-	'@',  'A',  'B',  'C',  'D',  'E',  'F',  'G',  'H',  'I',  'J',  'K',  'L',  'M',  'N',  'O',
-	'P',  'Q',  'R',  'S',  'T',  'U',  'V',  'W',  'X',  'Y',  'Z',  '[',  '\\', ']',  '^',  '_',
-	'`',  'a',  'b',  'c',  'd',  'e',  'f',  'g',  'h',  'i',  'j',  'k',  'l',  'm',  'n',  'o',
-	'p',  'q',  'r',  's',  't',  'u',  'v',  'w',  'x',  'y',  'z',  '{',  '|',  '}',  '~',  0x01,
-	'C',  'u',  'e',  'a',  'a',  'a',  'a',  'c',  'e',  'e',  'e',  'i',  'i',  'i',  'A',  'A',
-	'E',  'a',  'A',  'o',  'o',  'o',  'u',  'u',  'y',  'O',  'U',  'c',  'L',  'Y',  'P',  'f',
-	'a',  'i',  'o',  'u',  'n',  'N',  'a',  'o',  '?',  0x01, 0x01, 0x01, 0x01, '!',  '<',  '>',
-	'o',  '+',  '2',  '3',  '\'', 'u',  'P',  '.',  ',',  '1',  '0',  '>',  0x01, 0x01, 0x01, '?',
-	'A',  'A',  'A',  'A',  'A',  'A',  'A',  'C',  'E',  'E',  'E',  'E',  'I',  'I',  'I',  'I',
-	'D',  'N',  'O',  'O',  'O',  'O',  'O',  'X',  '0',  'U',  'U',  'U',  'U',  'Y',  'b',  'B',
-	'a',  'a',  'a',  'a',  'a',  'a',  'a',  'c',  'e',  'e',  'e',  'e',  'i',  'i',  'i',  'i',
-	'o',  'n',  'o',  'o',  'o',  'o',  'o',  '/',  '0',  'u',  'u',  'u',  'u',  'y',  'b',  'y',
-	// clang-format on
+std::unordered_map<uint32_t, Art> Fonts;
+std::unordered_map<uint32_t, std::array<uint8_t, 256>> FontKerns;
+std::array<int, 6> FontSizes = { 12, 24, 30, 42, 46, 22 };
+std::array<int, 6> LineHeights = { 12, 26, 38, 42, 50, 22 };
+std::array<int, 6> BaseLineOffset = { -3, -2, -3, -6, -7, 3 };
+
+std::array<const char *, 14> ColorTranlations = {
+	"fonts\\goldui.trn",
+	"fonts\\grayui.trn",
+	"fonts\\golduis.trn",
+	"fonts\\grayuis.trn",
+
+	nullptr,
+	"fonts\\yellowdialog.trn",
+
+	nullptr,
+	"fonts\\black.trn",
+
+	"fonts\\white.trn",
+	"fonts\\whitegold.trn",
+	"fonts\\red.trn",
+	"fonts\\blue.trn",
+
+	"fonts\\buttonface.trn",
+	"fonts\\buttonpushed.trn",
 };
 
-/** Maps from font index to cel frame number. */
-const uint8_t FontFrame[3][128] = {
-	{
-	    // clang-format off
-	     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	     0, 54, 44, 57, 58, 56, 55, 47, 40, 41, 59, 39, 50, 37, 51, 52,
-	    36, 27, 28, 29, 30, 31, 32, 33, 34, 35, 48, 49, 60, 38, 61, 53,
-	    62,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
-	    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 42, 63, 43, 64, 65,
-	     0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
-	    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 40, 66, 41, 67,  0,
-	    // clang-format on
-	},
-	{
-	    // clang-format off
-	     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	     0, 37, 49, 38,  0, 39, 40, 47, 42, 43, 41, 45, 52, 44, 53, 55,
-	    36, 27, 28, 29, 30, 31, 32, 33, 34, 35, 51, 50, 48, 46, 49, 54,
-	     0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
-	    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 42,  0, 43,  0,  0,
-	     0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
-	    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 48,  0, 49,  0,  0,
-	    // clang-format on
-	},
-	{
-	    // clang-format off
-	     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	     0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-	     0, 37, 49, 38,  0, 39, 40, 47, 42, 43, 41, 45, 52, 44, 53, 55,
-	    36, 27, 28, 29, 30, 31, 32, 33, 34, 35, 51, 50,  0, 46,  0, 54,
-	     0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
-	    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 42,  0, 43,  0,  0,
-	     0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14, 15,
-	    16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 20,  0, 21,  0,  0,
-	    // clang-format on
-	},
-};
-
-/**
- * Maps from cel frame number to character width. Note, the character width
- * may be distinct from the frame width, which is the same for every cel frame.
- */
-const uint8_t FontKern[3][68] = {
-	{
-	    // clang-format off
-		 8, 10,  7,  9,  8,  7,  6,  8,  8,  3,
-		 3,  8,  6, 11,  9, 10,  6,  9,  9,  6,
-		 9, 11, 10, 13, 10, 11,  7,  5,  7,  7,
-		 8,  7,  7,  7,  7,  7, 10,  4,  5,  6,
-		 3,  3,  4,  3,  6,  6,  3,  3,  3,  3,
-		 3,  2,  7,  6,  3, 10, 10,  6,  6,  7,
-		 4,  4,  9,  6,  6, 12,  3,  7
-	    // clang-format on
-	},
-	{
-	    // clang-format off
-		 5, 15, 10, 13, 14, 10,  9, 13, 11,  5,
-		 5, 11, 10, 16, 13, 16, 10, 15, 12, 10,
-		14, 17, 17, 22, 17, 16, 11,  5, 11, 11,
-		11, 10, 11, 11, 11, 11, 15,  5, 10, 18,
-		15,  8,  6,  6,  7, 10,  9,  6, 10, 10,
-		 5,  5,  5,  5, 11, 12
-	    // clang-format on
-	},
-	{
-	    // clang-format off
-		18, 33, 21, 26, 28, 19, 19, 26, 25, 11,
-		12, 25, 19, 34, 28, 32, 20, 32, 28, 20,
-		28, 36, 35, 46, 33, 33, 24, 11, 23, 22,
-		22, 21, 22, 21, 21, 21, 32, 10, 20, 36,
-		31, 17, 13, 12, 13, 18, 16, 11, 20, 21,
-		11, 10, 12, 11, 21, 23
-	    // clang-format on
-	}
-};
-
-enum text_color : uint8_t {
-	ColorWhite,
-	ColorBlue,
-	ColorRed,
-	ColorGold,
-	ColorBlack,
-};
-
-int LineHeights[3] = { 12, 38, 50 };
-
-/** Graphics for the fonts */
-std::array<std::optional<CelSprite>, 3> fonts;
-
-uint8_t fontColorTableGold[256];
-uint8_t fontColorTableBlue[256];
-uint8_t fontColorTableRed[256];
-
-void DrawChar(const CelOutputBuffer &out, Point position, GameFontTables size, int nCel, text_color color)
+GameFontTables GetSizeFromFlags(UiFlags flags)
 {
-	switch (color) {
-	case ColorWhite:
-		CelDrawTo(out, position, *fonts[size], nCel);
-		return;
-	case ColorBlue:
-		CelDrawLightTo(out, position, *fonts[size], nCel, fontColorTableBlue);
-		break;
-	case ColorRed:
-		CelDrawLightTo(out, position, *fonts[size], nCel, fontColorTableRed);
-		break;
-	case ColorGold:
-		CelDrawLightTo(out, position, *fonts[size], nCel, fontColorTableGold);
-		break;
-	case ColorBlack:
-		light_table_index = 15;
-		CelDrawLightTo(out, position, *fonts[size], nCel, nullptr);
-		return;
+	if (HasAnyOf(flags, UiFlags::FontSize24))
+		return GameFont24;
+	else if (HasAnyOf(flags, UiFlags::FontSize30))
+		return GameFont30;
+	else if (HasAnyOf(flags, UiFlags::FontSize42))
+		return GameFont42;
+	else if (HasAnyOf(flags, UiFlags::FontSize46))
+		return GameFont46;
+	else if (HasAnyOf(flags, UiFlags::FontSizeDialog))
+		return FontSizeDialog;
+
+	return GameFont12;
+}
+
+text_color GetColorFromFlags(UiFlags flags)
+{
+	if (HasAnyOf(flags, UiFlags::ColorWhite))
+		return ColorWhite;
+	else if (HasAnyOf(flags, UiFlags::ColorBlue))
+		return ColorBlue;
+	else if (HasAnyOf(flags, UiFlags::ColorRed))
+		return ColorRed;
+	else if (HasAnyOf(flags, UiFlags::ColorBlack))
+		return ColorBlack;
+	else if (HasAnyOf(flags, UiFlags::ColorGold))
+		return ColorGold;
+	else if (HasAnyOf(flags, UiFlags::ColorUiGold))
+		return ColorUiGold;
+	else if (HasAnyOf(flags, UiFlags::ColorUiSilver))
+		return ColorUiSilver;
+	else if (HasAnyOf(flags, UiFlags::ColorUiGoldDark))
+		return ColorUiGoldDark;
+	else if (HasAnyOf(flags, UiFlags::ColorUiSilverDark))
+		return ColorUiSilverDark;
+	else if (HasAnyOf(flags, UiFlags::ColorDialogWhite))
+		return ColorDialogWhite;
+	else if (HasAnyOf(flags, UiFlags::ColorDialogYellow))
+		return ColorDialogYellow;
+	else if (HasAnyOf(flags, UiFlags::ColorButtonface))
+		return ColorButtonface;
+	else if (HasAnyOf(flags, UiFlags::ColorButtonpushed))
+		return ColorButtonpushed;
+
+	return ColorWhitegold;
+}
+
+std::array<uint8_t, 256> *LoadFontKerning(GameFontTables size, uint16_t row)
+{
+	uint32_t fontId = (size << 16) | row;
+
+	auto hotKerning = FontKerns.find(fontId);
+	if (hotKerning != FontKerns.end()) {
+		return &hotKerning->second;
 	}
+
+	char path[32];
+	sprintf(path, "fonts\\%i-%02x.bin", FontSizes[size], row);
+
+	auto *kerning = &FontKerns[fontId];
+
+	HANDLE handle;
+	if (SFileOpenFile(path, &handle)) {
+		SFileReadFileThreadSafe(handle, kerning, 256);
+		SFileCloseFileThreadSafe(handle);
+	} else {
+		LogError("Missing font kerning: {}", path);
+		kerning->fill(FontSizes[size]);
+	}
+
+	return kerning;
+}
+
+Art *LoadFont(GameFontTables size, text_color color, uint16_t row)
+{
+	uint32_t fontId = (color << 24) | (size << 16) | row;
+
+	auto hotFont = Fonts.find(fontId);
+	if (hotFont != Fonts.end()) {
+		return &hotFont->second;
+	}
+
+	char path[32];
+	sprintf(path, "fonts\\%i-%02x.pcx", FontSizes[size], row);
+
+	auto *font = &Fonts[fontId];
+
+	if (ColorTranlations[color] != nullptr) {
+		std::array<uint8_t, 256> colorMapping;
+		LoadFileInMem(ColorTranlations[color], colorMapping);
+		LoadMaskedArt(path, font, 256, 1, &colorMapping);
+	} else {
+		LoadMaskedArt(path, font, 256, 1);
+	}
+	if (font->surface == nullptr) {
+		LogError("Missing font: {}", path);
+	}
+
+	return font;
 }
 
 } // namespace
 
-std::optional<CelSprite> pSPentSpn2Cels;
-
-void InitText()
+void UnloadFonts(GameFontTables size, text_color color)
 {
-	fonts[GameFontSmall] = LoadCel("CtrlPan\\SmalText.CEL", 13);
-	fonts[GameFontMed] = LoadCel("Data\\MedTextS.CEL", 22);
-	fonts[GameFontBig] = LoadCel("Data\\BigTGold.CEL", 46);
+	uint32_t fontStyle = (color << 24) | (size << 16);
 
-	pSPentSpn2Cels = LoadCel("Data\\PentSpn2.CEL", 12);
-
-	for (int i = 0; i < 256; i++) {
-		uint8_t pix = i;
-		if (pix >= PAL16_GRAY + 14)
-			pix = PAL16_BLUE + 15;
-		else if (pix >= PAL16_GRAY)
-			pix -= PAL16_GRAY - (PAL16_BLUE + 2);
-		fontColorTableBlue[i] = pix;
-	}
-
-	for (int i = 0; i < 256; i++) {
-		uint8_t pix = i;
-		if (pix >= PAL16_GRAY)
-			pix -= PAL16_GRAY - PAL16_RED;
-		fontColorTableRed[i] = pix;
-	}
-
-	for (int i = 0; i < 256; i++) {
-		uint8_t pix = i;
-		if (pix >= PAL16_GRAY + 14)
-			pix = PAL16_YELLOW + 15;
-		else if (pix >= PAL16_GRAY)
-			pix -= PAL16_GRAY - (PAL16_YELLOW + 2);
-		fontColorTableGold[i] = pix;
+	for (auto font = Fonts.begin(); font != Fonts.end();) {
+		if ((font->first & 0xFFFF0000) == fontStyle) {
+			font = Fonts.erase(font);
+		} else {
+			font++;
+		}
 	}
 }
 
-int GetLineWidth(const char *text, GameFontTables size, int spacing, int *charactersInLine)
+void UnloadFonts()
+{
+	Fonts.clear();
+	FontKerns.clear();
+}
+
+int GetLineWidth(string_view text, GameFontTables size, int spacing, int *charactersInLine)
 {
 	int lineWidth = 0;
 
-	size_t textLength = strlen(text);
+	std::string textBuffer;
+	textBuffer.reserve(textBuffer.size() + 3); // Buffer must be padded before calling utf8_decode()
+	textBuffer.append(text.data(), text.size());
+	textBuffer.resize(textBuffer.size() + 3);
+	const char *textData = textBuffer.data();
+
 	size_t i = 0;
-	for (; i < textLength; i++) {
-		if (text[i] == '\n')
+	uint32_t currentUnicodeRow = 0;
+	std::array<uint8_t, 256> *kerning = nullptr;
+	char32_t next;
+	int error;
+	for (; *textData != '\0'; i++) {
+		textData = utf8_decode(textData, &next, &error);
+		if (error)
+			next = '?';
+
+		if (next == '\n')
 			break;
 
-		uint8_t frame = FontFrame[size][FontIndex[static_cast<uint8_t>(text[i])]];
-		lineWidth += FontKern[size][frame] + spacing;
+		uint8_t frame = next & 0xFF;
+		uint32_t unicodeRow = next >> 8;
+		if (unicodeRow != currentUnicodeRow || kerning == nullptr) {
+			kerning = LoadFontKerning(size, unicodeRow);
+			if (kerning == nullptr) {
+				continue;
+			}
+			currentUnicodeRow = unicodeRow;
+		}
+		lineWidth += (*kerning)[frame] + spacing;
+		i++;
 	}
 
 	if (charactersInLine != nullptr)
@@ -228,82 +229,109 @@ int AdjustSpacingToFitHorizontally(int &lineWidth, int maxSpacing, int character
 	return maxSpacing - spacingRedux;
 }
 
-void WordWrapGameString(char *text, size_t width, GameFontTables size, int spacing)
+std::string WordWrapString(string_view text, size_t width, GameFontTables size, int spacing)
 {
-	const size_t textLength = strlen(text);
-	size_t lineStart = 0;
+	int lastBreakablePos = -1;
+	int lastBreakableLen;
+	char32_t lastBreakableCodePoint;
+
+	std::string input;
+	std::string output;
+	input.reserve(input.size() + 3); // Buffer must be padded before calling utf8_decode()
+	input.append(text.data(), text.size());
+	input.resize(input.size() + 3);
+	output.reserve(text.size());
+	const char *begin = input.data();
+	const char *cur = begin;
+
+	const char *processedEnd = cur;
+	uint32_t currentUnicodeRow = 0;
 	size_t lineWidth = 0;
-	for (unsigned i = 0; i < textLength; i++) {
-		if (text[i] == '\n') { // Existing line break, scan next line
-			lineStart = i + 1;
+	std::array<uint8_t, 256> *kerning = nullptr;
+	char32_t next;
+	int error;
+	while (*cur != '\0') {
+		cur = utf8_decode(cur, &next, &error);
+		if (error != 0)
+			next = U'?';
+
+		if (next == U'\n') { // Existing line break, scan next line
+			lastBreakablePos = -1;
 			lineWidth = 0;
+			output.append(processedEnd, cur);
+			processedEnd = cur;
 			continue;
 		}
 
-		uint8_t frame = FontFrame[size][FontIndex[static_cast<uint8_t>(text[i])]];
-		lineWidth += FontKern[size][frame] + spacing;
+		uint8_t frame = next & 0xFF;
+		uint32_t unicodeRow = next >> 8;
+		if (unicodeRow != currentUnicodeRow || kerning == nullptr) {
+			kerning = LoadFontKerning(size, unicodeRow);
+			if (kerning == nullptr) {
+				continue;
+			}
+			currentUnicodeRow = unicodeRow;
+		}
+		lineWidth += (*kerning)[frame] + spacing;
+
+		if (IsAnyOf(next, U' ', U',', U'.', U'?', U'!')) {
+			lastBreakablePos = static_cast<int>(cur - begin - 1);
+			lastBreakableLen = 1;
+			lastBreakableCodePoint = next;
+			continue;
+		}
+		if (IsAnyOf(next, U'　', U'，', U'、', U'。', U'？', U'！')) {
+			lastBreakablePos = static_cast<int>(cur - begin - 3);
+			lastBreakableLen = 3;
+			lastBreakableCodePoint = next;
+			continue;
+		}
 
 		if (lineWidth - spacing <= width) {
-			continue; // String is still within the limit, continue to the next line
+			continue; // String is still within the limit, continue to the next symbol
 		}
 
-		size_t j; // Backtrack to the previous space
-		for (j = i; j >= lineStart; j--) {
-			if (text[j] == ' ') {
-				break;
-			}
-		}
-
-		if (j == lineStart) { // Single word longer than width
-			if (i == textLength)
-				break;
-			j = i;
+		if (lastBreakablePos == -1) { // Single word longer than width
+			continue;
 		}
 
 		// Break line and continue to next line
-		i = j;
-		text[i] = '\n';
-		lineStart = i + 1;
+		const char *end = &input[lastBreakablePos];
+		if (!IsAnyOf(lastBreakableCodePoint, U' ', U'　')) {
+			end += lastBreakableLen;
+		}
+		output.append(processedEnd, end);
+		output += '\n';
+		cur = &input[lastBreakablePos + lastBreakableLen];
+		processedEnd = cur;
+		lastBreakablePos = -1;
 		lineWidth = 0;
 	}
+	output.append(processedEnd, cur);
+	return output;
 }
 
 /**
- * @todo replace Rectangle with cropped CelOutputBuffer
+ * @todo replace Rectangle with cropped Surface
  */
-int DrawString(const CelOutputBuffer &out, const char *text, const Rectangle &rect, uint16_t flags, int spacing, int lineHeight, bool drawTextCursor)
+uint32_t DrawString(const Surface &out, string_view text, const Rectangle &rect, UiFlags flags, int spacing, int lineHeight)
 {
-	GameFontTables size = GameFontSmall;
-	if ((flags & UIS_MED) != 0)
-		size = GameFontMed;
-	else if ((flags & UIS_HUGE) != 0)
-		size = GameFontBig;
-
-	text_color color = ColorGold;
-	if ((flags & UIS_SILVER) != 0)
-		color = ColorWhite;
-	else if ((flags & UIS_BLUE) != 0)
-		color = ColorBlue;
-	else if ((flags & UIS_RED) != 0)
-		color = ColorRed;
-	else if ((flags & UIS_BLACK) != 0)
-		color = ColorBlack;
-
-	const size_t textLength = strlen(text);
+	GameFontTables size = GetSizeFromFlags(flags);
+	text_color color = GetColorFromFlags(flags);
 
 	int charactersInLine = 0;
 	int lineWidth = 0;
-	if ((flags & (UIS_CENTER | UIS_RIGHT | UIS_FIT_SPACING)) != 0)
+	if (HasAnyOf(flags, (UiFlags::AlignCenter | UiFlags::AlignRight | UiFlags::KerningFitSpacing)))
 		lineWidth = GetLineWidth(text, size, spacing, &charactersInLine);
 
 	int maxSpacing = spacing;
-	if ((flags & UIS_FIT_SPACING) != 0)
+	if (HasAnyOf(flags, UiFlags::KerningFitSpacing))
 		spacing = AdjustSpacingToFitHorizontally(lineWidth, maxSpacing, charactersInLine, rect.size.width);
 
 	Point characterPosition = rect.position;
-	if ((flags & UIS_CENTER) != 0)
+	if (HasAnyOf(flags, UiFlags::AlignCenter))
 		characterPosition.x += (rect.size.width - lineWidth) / 2;
-	else if ((flags & UIS_RIGHT) != 0)
+	else if (HasAnyOf(flags, UiFlags::AlignRight))
 		characterPosition.x += rect.size.width - lineWidth;
 
 	int rightMargin = rect.position.x + rect.size.width;
@@ -312,41 +340,72 @@ int DrawString(const CelOutputBuffer &out, const char *text, const Rectangle &re
 	if (lineHeight == -1)
 		lineHeight = LineHeights[size];
 
-	unsigned i = 0;
-	for (; i < textLength; i++) {
-		uint8_t frame = FontFrame[size][FontIndex[static_cast<uint8_t>(text[i])]];
-		int symbolWidth = FontKern[size][frame];
-		if (text[i] == '\n' || characterPosition.x + symbolWidth > rightMargin) {
+	if (HasAnyOf(flags, UiFlags::VerticalCenter)) {
+		int textHeight = (std::count(text.cbegin(), text.cend(), '\n') + 1) * lineHeight;
+		characterPosition.y += (rect.size.height - textHeight) / 2;
+	}
+
+	characterPosition.y += BaseLineOffset[size];
+
+	Art *font = nullptr;
+	std::array<uint8_t, 256> *kerning = nullptr;
+
+	std::string textBuffer(text);
+	textBuffer.resize(textBuffer.size() + 4); // Buffer must be padded before calling utf8_decode()
+	const char *textData = textBuffer.data();
+	const char *previousPosition = textData;
+
+	char32_t next;
+	uint32_t currentUnicodeRow = 0;
+	int error;
+	for (; *textData != '\0'; previousPosition = textData) {
+		textData = utf8_decode(textData, &next, &error);
+		if (error)
+			next = '?';
+
+		uint32_t unicodeRow = next >> 8;
+		if (unicodeRow != currentUnicodeRow || font == nullptr) {
+			kerning = LoadFontKerning(size, unicodeRow);
+			font = LoadFont(size, color, unicodeRow);
+			currentUnicodeRow = unicodeRow;
+		}
+
+		uint8_t frame = next & 0xFF;
+		if (next == '\n' || characterPosition.x > rightMargin) {
 			if (characterPosition.y + lineHeight >= bottomMargin)
 				break;
+			characterPosition.x = rect.position.x;
 			characterPosition.y += lineHeight;
 
-			if ((flags & (UIS_CENTER | UIS_RIGHT | UIS_FIT_SPACING)) != 0)
-				lineWidth = GetLineWidth(&text[i + 1], size, spacing, &charactersInLine);
+			if (HasAnyOf(flags, (UiFlags::AlignCenter | UiFlags::AlignRight))) {
+				lineWidth = (*kerning)[frame];
+				if (*textData != '\0')
+					lineWidth += spacing + GetLineWidth(textData, size, spacing);
+			}
 
-			if ((flags & UIS_FIT_SPACING) != 0)
-				spacing = AdjustSpacingToFitHorizontally(lineWidth, maxSpacing, charactersInLine, rect.size.width);
-
-			characterPosition.x = rect.position.x;
-			if ((flags & UIS_CENTER) != 0)
+			if (HasAnyOf(flags, UiFlags::AlignCenter))
 				characterPosition.x += (rect.size.width - lineWidth) / 2;
-			else if ((flags & UIS_RIGHT) != 0)
+			else if (HasAnyOf(flags, UiFlags::AlignRight))
 				characterPosition.x += rect.size.width - lineWidth;
+
+			if (next == '\n')
+				continue;
 		}
-		if (frame != 0) {
-			DrawChar(out, characterPosition, size, frame, color);
-		}
-		if (text[i] != '\n')
-			characterPosition.x += symbolWidth + spacing;
-	}
-	if (drawTextCursor) {
-		CelDrawTo(out, characterPosition, *pSPentSpn2Cels, PentSpn2Spin());
+
+		DrawArt(out, characterPosition, font, frame);
+		characterPosition.x += (*kerning)[frame] + spacing;
 	}
 
-	return i;
+	if (HasAnyOf(flags, UiFlags::PentaCursor)) {
+		CelDrawTo(out, characterPosition + Displacement { 0, lineHeight - BaseLineOffset[size] }, *pSPentSpn2Cels, PentSpn2Spin());
+	} else if (HasAnyOf(flags, UiFlags::TextCursor) && GetAnimationFrame(2, 500) != 0) {
+		DrawArt(out, characterPosition, LoadFont(size, color, 0), '|');
+	}
+
+	return previousPosition - textBuffer.data();
 }
 
-int PentSpn2Spin()
+uint8_t PentSpn2Spin()
 {
 	return (SDL_GetTicks() / 50) % 8 + 1;
 }

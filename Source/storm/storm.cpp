@@ -13,6 +13,7 @@
 #include "utils/paths.h"
 #include "utils/sdl_mutex.h"
 #include "utils/stubs.h"
+#include "utils/stdcompat/optional.hpp"
 
 // Include Windows headers for Get/SetLastError.
 #if defined(_WIN32)
@@ -30,13 +31,14 @@ namespace devilution {
 namespace {
 
 bool directFileAccess = false;
-std::string *SBasePath = nullptr;
+std::optional<std::string> SBasePath;
+std::optional<std::string> AssetsPath;
 
 SdlMutex Mutex;
 
 } // namespace
 
-bool SFileReadFileThreadSafe(HANDLE hFile, void *buffer, DWORD nNumberOfBytesToRead, DWORD *read, int *lpDistanceToMoveHigh)
+bool SFileReadFileThreadSafe(HANDLE hFile, void *buffer, size_t nNumberOfBytesToRead, size_t *read, int *lpDistanceToMoveHigh)
 {
 	const std::lock_guard<SdlMutex> lock(Mutex);
 	return SFileReadFile(hFile, buffer, nNumberOfBytesToRead, read, lpDistanceToMoveHigh);
@@ -81,7 +83,7 @@ bool SFileOpenFile(const char *filename, HANDLE *phFile)
 {
 	bool result = false;
 
-	if (directFileAccess && SBasePath != nullptr) {
+	if (directFileAccess && SBasePath) {
 		std::string path = *SBasePath + filename;
 		for (std::size_t i = SBasePath->size(); i < path.size(); ++i)
 			path[i] = AsciiToLowerTable_Path[static_cast<unsigned char>(path[i])];
@@ -127,6 +129,14 @@ bool SFileOpenFile(const char *filename, HANDLE *phFile)
 		result = SFileOpenFileEx((HANDLE)diabdat_mpq, filename, SFILE_OPEN_FROM_MPQ, phFile);
 	}
 
+	// As last fallback always search app content folder
+	if (!result && AssetsPath) {
+		std::string path = *AssetsPath + filename;
+		for (std::size_t i = AssetsPath->size(); i < path.size(); ++i)
+			path[i] = AsciiToLowerTable_Path[static_cast<unsigned char>(path[i])];
+		result = SFileOpenFileEx((HANDLE) nullptr, path.c_str(), SFILE_OPEN_LOCAL_FILE, phFile);
+	}
+
 	if (!result || (*phFile == nullptr)) {
 		const auto error = SErrGetLastError();
 		if (error == STORM_ERROR_FILE_NOT_FOUND) {
@@ -138,22 +148,24 @@ bool SFileOpenFile(const char *filename, HANDLE *phFile)
 	return result;
 }
 
-DWORD SErrGetLastError()
+uint32_t SErrGetLastError()
 {
 	return ::GetLastError();
 }
 
-void SErrSetLastError(DWORD dwErrCode)
+void SErrSetLastError(uint32_t dwErrCode)
 {
 	::SetLastError(dwErrCode);
 }
 
-bool SFileSetBasePath(const char *path)
+void SFileSetBasePath(string_view path)
 {
-	if (SBasePath == nullptr)
-		SBasePath = new std::string;
-	*SBasePath = path;
-	return true;
+	SBasePath.emplace(path);
+}
+
+void SFileSetAssetsPath(string_view path)
+{
+	AssetsPath.emplace(path);
 }
 
 bool SFileEnableDirectAccess(bool enable)

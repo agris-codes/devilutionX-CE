@@ -5,51 +5,76 @@
  */
 
 #include "diablo.h"
+#include "engine/demomode.h"
 #include "gmenu.h"
+#include "nthread.h"
 #include "storm/storm.h"
-#include "utils/thread.h"
+#include "utils/sdl_mutex.h"
+#include "utils/sdl_thread.h"
 
 namespace devilution {
 
 BYTE sgbNetUpdateRate;
-DWORD gdwMsgLenTbl[MAX_PLRS];
-static CCritSect sgMemCrit;
-DWORD gdwDeltaBytesSec;
-bool nthread_should_run;
-DWORD gdwTurnsInTransit;
+size_t gdwMsgLenTbl[MAX_PLRS];
+uint32_t gdwTurnsInTransit;
 uintptr_t glpMsgTbl[MAX_PLRS];
-SDL_threadID glpNThreadId;
-char sgbSyncCountdown;
-int turn_upper_bit;
-bool sgbTicsOutOfSync;
-char sgbPacketCountdown;
-bool sgbThreadIsRunning;
-DWORD gdwLargestMsgSize;
-DWORD gdwNormalMsgSize;
+uint32_t gdwLargestMsgSize;
+uint32_t gdwNormalMsgSize;
 int last_tick;
 float gfProgressToNextGameTick = 0.0;
 
-/* data */
-static SDL_Thread *sghThread = nullptr;
+namespace {
 
-void nthread_terminate_game(const char *pszFcn)
+SdlMutex MemCrit;
+DWORD gdwDeltaBytesSec;
+bool nthread_should_run;
+char sgbSyncCountdown;
+uint32_t turn_upper_bit;
+bool sgbTicsOutOfSync;
+char sgbPacketCountdown;
+bool sgbThreadIsRunning;
+SdlThread Thread;
+
+void NthreadHandler()
 {
-	DWORD sErr;
-
-	sErr = SErrGetLastError();
-	if (sErr == STORM_ERROR_INVALID_PLAYER) {
+	if (!nthread_should_run) {
 		return;
 	}
-	if (sErr == STORM_ERROR_GAME_TERMINATED) {
-		gbGameDestroyed = true;
-	} else if (sErr == STORM_ERROR_NOT_IN_GAME) {
-		gbGameDestroyed = true;
-	} else {
-		app_fatal("%s:\n%s", pszFcn, SDL_GetError());
+
+	while (true) {
+		MemCrit.lock();
+		if (!nthread_should_run) {
+			MemCrit.unlock();
+			break;
+		}
+		nthread_send_and_recv_turn(0, 0);
+		int delta = gnTickDelay;
+		if (nthread_recv_turns())
+			delta = last_tick - SDL_GetTicks();
+		MemCrit.unlock();
+		if (delta > 0)
+			SDL_Delay(delta);
+		if (!nthread_should_run)
+			return;
 	}
 }
 
-uint32_t nthread_send_and_recv_turn(uint32_t cur_turn, int turn_delta)
+} // namespace
+
+void nthread_terminate_game(const char *pszFcn)
+{
+	uint32_t sErr = SErrGetLastError();
+	if (sErr == STORM_ERROR_INVALID_PLAYER) {
+		return;
+	}
+	if (sErr != STORM_ERROR_GAME_TERMINATED && sErr != STORM_ERROR_NOT_IN_GAME) {
+		app_fatal("%s:\n%s", pszFcn, SDL_GetError());
+	}
+
+	gbGameDestroyed = true;
+}
+
+uint32_t nthread_send_and_recv_turn(uint32_t curTurn, int turnDelta)
 {
 	uint32_t curTurnsInTransit;
 	if (!SNetGetTurnsInTransit(&curTurnsInTransit)) {
@@ -58,25 +83,26 @@ uint32_t nthread_send_and_recv_turn(uint32_t cur_turn, int turn_delta)
 	}
 	while (curTurnsInTransit++ < gdwTurnsInTransit) {
 
-		int turn_tmp = turn_upper_bit | (cur_turn & 0x7FFFFFFF);
+		uint32_t turnTmp = turn_upper_bit | (curTurn & 0x7FFFFFFF);
 		turn_upper_bit = 0;
-		int turn = turn_tmp;
+		uint32_t turn = turnTmp;
 
 		if (!SNetSendTurn((char *)&turn, sizeof(turn))) {
 			nthread_terminate_game("SNetSendTurn");
 			return 0;
 		}
 
-		cur_turn += turn_delta;
-		if (cur_turn >= 0x7FFFFFFF)
-			cur_turn &= 0xFFFF;
+		curTurn += turnDelta;
+		if (curTurn >= 0x7FFFFFFF)
+			curTurn &= 0xFFFF;
 	}
-	return cur_turn;
+	return curTurn;
 }
 
 bool nthread_recv_turns(bool *pfSendAsync)
 {
-	*pfSendAsync = false;
+	if (pfSendAsync != nullptr)
+		*pfSendAsync = false;
 	sgbPacketCountdown--;
 	if (sgbPacketCountdown > 0) {
 		last_tick += gnTickDelay;
@@ -85,12 +111,12 @@ bool nthread_recv_turns(bool *pfSendAsync)
 	sgbSyncCountdown--;
 	sgbPacketCountdown = sgbNetUpdateRate;
 	if (sgbSyncCountdown != 0) {
-
-		*pfSendAsync = true;
+		if (pfSendAsync != nullptr)
+			*pfSendAsync = true;
 		last_tick += gnTickDelay;
 		return true;
 	}
-	if (!SNetReceiveTurns(0, MAX_PLRS, (char **)glpMsgTbl, (unsigned int *)gdwMsgLenTbl, &player_state[0])) {
+	if (!SNetReceiveTurns(MAX_PLRS, (char **)glpMsgTbl, gdwMsgLenTbl, &player_state[0])) {
 		if (SErrGetLastError() != STORM_ERROR_NO_MESSAGES_WAITING)
 			nthread_terminate_game("SNetReceiveTurns");
 		sgbTicsOutOfSync = false;
@@ -104,35 +130,10 @@ bool nthread_recv_turns(bool *pfSendAsync)
 	}
 	sgbSyncCountdown = 4;
 	multi_msg_countdown();
-	*pfSendAsync = true;
+	if (pfSendAsync != nullptr)
+		*pfSendAsync = true;
 	last_tick += gnTickDelay;
 	return true;
-}
-
-static unsigned int nthread_handler(void * /*data*/)
-{
-	int delta;
-	bool received;
-
-	if (nthread_should_run) {
-		while (true) {
-			sgMemCrit.Enter();
-			if (!nthread_should_run)
-				break;
-			nthread_send_and_recv_turn(0, 0);
-			if (nthread_recv_turns(&received))
-				delta = last_tick - SDL_GetTicks();
-			else
-				delta = gnTickDelay;
-			sgMemCrit.Leave();
-			if (delta > 0)
-				SDL_Delay(delta);
-			if (!nthread_should_run)
-				return 0;
-		}
-		sgMemCrit.Leave();
-	}
-	return 0;
 }
 
 void nthread_set_turn_upper_bit()
@@ -140,20 +141,17 @@ void nthread_set_turn_upper_bit()
 	turn_upper_bit = 0x80000000;
 }
 
-void nthread_start(bool set_turn_upper_bit)
+void nthread_start(bool setTurnUpperBit)
 {
-	const char *err;
-	DWORD largestMsgSize;
-	_SNETCAPS caps;
-
 	last_tick = SDL_GetTicks();
 	sgbPacketCountdown = 1;
 	sgbSyncCountdown = 1;
 	sgbTicsOutOfSync = true;
-	if (set_turn_upper_bit)
+	if (setTurnUpperBit)
 		nthread_set_turn_upper_bit();
 	else
 		turn_upper_bit = 0;
+	_SNETCAPS caps;
 	caps.size = 36;
 	SNetGetProviderCaps(&caps);
 	gdwTurnsInTransit = caps.defaultturnsintransit;
@@ -163,7 +161,7 @@ void nthread_start(bool set_turn_upper_bit)
 		sgbNetUpdateRate = 20 / caps.defaultturnssec;
 	else
 		sgbNetUpdateRate = 1;
-	largestMsgSize = 512;
+	uint32_t largestMsgSize = 512;
 	if (caps.maxmessagesize < 0x200)
 		largestMsgSize = caps.maxmessagesize;
 	gdwDeltaBytesSec = caps.bytessec / 4;
@@ -182,13 +180,9 @@ void nthread_start(bool set_turn_upper_bit)
 		gdwNormalMsgSize = largestMsgSize;
 	if (gbIsMultiplayer) {
 		sgbThreadIsRunning = false;
-		sgMemCrit.Enter();
+		MemCrit.lock();
 		nthread_should_run = true;
-		sghThread = CreateThread(nthread_handler, &glpNThreadId);
-		if (sghThread == nullptr) {
-			err = SDL_GetError();
-			app_fatal("nthread2:\n%s", err);
-		}
+		Thread = SdlThread { NthreadHandler };
 	}
 }
 
@@ -198,36 +192,29 @@ void nthread_cleanup()
 	gdwTurnsInTransit = 0;
 	gdwNormalMsgSize = 0;
 	gdwLargestMsgSize = 0;
-	if (sghThread != nullptr && glpNThreadId != SDL_GetThreadID(nullptr)) {
+	if (Thread.joinable() && Thread.get_id() != this_sdl_thread::get_id()) {
 		if (!sgbThreadIsRunning)
-			sgMemCrit.Leave();
-		SDL_WaitThread(sghThread, nullptr);
-		sghThread = nullptr;
+			MemCrit.unlock();
+		Thread.join();
 	}
 }
 
 void nthread_ignore_mutex(bool bStart)
 {
-	if (sghThread != nullptr) {
-		if (bStart)
-			sgMemCrit.Leave();
-		else
-			sgMemCrit.Enter();
-		sgbThreadIsRunning = bStart;
-	}
+	if (!Thread.joinable())
+		return;
+
+	if (bStart)
+		MemCrit.unlock();
+	else
+		MemCrit.lock();
+	sgbThreadIsRunning = bStart;
 }
 
-/**
- * @brief Checks if it's time for the logic to advance
- * @return True if the engine should tick
- */
 bool nthread_has_500ms_passed()
 {
-	DWORD currentTickCount;
-	int ticksElapsed;
-
-	currentTickCount = SDL_GetTicks();
-	ticksElapsed = currentTickCount - last_tick;
+	int currentTickCount = SDL_GetTicks();
+	int ticksElapsed = currentTickCount - last_tick;
 	if (!gbIsMultiplayer && ticksElapsed > gnTickDelay * 10) {
 		last_tick = currentTickCount;
 		ticksElapsed = 0;
@@ -237,7 +224,7 @@ bool nthread_has_500ms_passed()
 
 void nthread_UpdateProgressToNextGameTick()
 {
-	if (!gbRunGame || PauseMode != 0 || (!gbIsMultiplayer && gmenu_is_active()) || !gbProcessPlayers) // if game is not running or paused there is no next gametick in the near future
+	if (!gbRunGame || PauseMode != 0 || (!gbIsMultiplayer && gmenu_is_active()) || !gbProcessPlayers || demo::IsRunning()) // if game is not running or paused there is no next gametick in the near future
 		return;
 	int currentTickCount = SDL_GetTicks();
 	int ticksElapsed = last_tick - currentTickCount;

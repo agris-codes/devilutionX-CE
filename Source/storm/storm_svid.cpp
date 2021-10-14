@@ -4,7 +4,6 @@
 #include <cstdint>
 #include <cstring>
 
-#include <SDL.h>
 #include <smacker.h>
 
 #ifndef NOSOUND
@@ -22,6 +21,7 @@
 #include "utils/display.h"
 #include "utils/log.hpp"
 #include "utils/sdl_compat.h"
+#include "utils/sdl_wrap.h"
 #include "utils/stdcompat/optional.hpp"
 
 namespace devilution {
@@ -39,8 +39,8 @@ double SVidFrameLength;
 bool SVidLoop;
 smk SVidSMK;
 SDL_Color SVidPreviousPalette[256];
-SDL_Palette *SVidPalette;
-SDL_Surface *SVidSurface;
+SDLPaletteUniquePtr SVidPalette;
+SDLSurfaceUniquePtr SVidSurface;
 
 #ifndef DEVILUTIONX_STORM_FILE_WRAPPER_AVAILABLE
 std::unique_ptr<uint8_t[]> SVidBuffer;
@@ -111,7 +111,7 @@ void TrySetVideoModeToSVidForSDL1()
 #endif
 
 #ifndef NOSOUND
-bool HaveAudio()
+bool HasAudio()
 {
 	return SVidAudioStream && SVidAudioStream->isPlaying();
 }
@@ -150,16 +150,16 @@ bool SVidPlayBegin(const char *filename, int flags)
 	//0x800000 // Edge detection
 	//0x200800 // Clear FB
 
-	HANDLE video_stream;
-	SFileOpenFile(filename, &video_stream);
+	HANDLE videoStream;
+	SFileOpenFile(filename, &videoStream);
 #ifdef DEVILUTIONX_STORM_FILE_WRAPPER_AVAILABLE
-	FILE *file = FILE_FromStormHandle(video_stream);
+	FILE *file = FILE_FromStormHandle(videoStream);
 	SVidSMK = smk_open_filepointer(file, SMK_MODE_DISK);
 #else
-	int bytestoread = SFileGetFileSize(video_stream);
+	size_t bytestoread = SFileGetFileSize(videoStream);
 	SVidBuffer = std::unique_ptr<uint8_t[]> { new uint8_t[bytestoread] };
-	SFileReadFileThreadSafe(video_stream, SVidBuffer.get(), bytestoread);
-	SFileCloseFileThreadSafe(video_stream);
+	SFileReadFileThreadSafe(videoStream, SVidBuffer.get(), bytestoread);
+	SFileCloseFileThreadSafe(videoStream);
 	SVidSMK = smk_open_memory(SVidBuffer.get(), bytestoread);
 #endif
 	if (SVidSMK == nullptr) {
@@ -179,7 +179,7 @@ bool SVidPlayBegin(const char *filename, int flags)
 	if (enableAudio && depth[0] != 0) {
 		sound_stop(); // Stop in-progress music and sound effects
 
-		smk_enable_audio(SVidSMK, 0, enableAudio ? 1 : 0);
+		smk_enable_audio(SVidSMK, 0, 1);
 		SVidAudioDepth = depth[0];
 		auto decoder = std::make_unique<PushAulibDecoder>(channels[0], rate[0]);
 		SVidAudioDecoder = decoder.get();
@@ -210,11 +210,7 @@ bool SVidPlayBegin(const char *filename, int flags)
 	smk_info_video(SVidSMK, &SVidWidth, &SVidHeight, nullptr);
 #ifndef USE_SDL1
 	if (renderer != nullptr) {
-		SDL_DestroyTexture(texture);
-		texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, SVidWidth, SVidHeight);
-		if (texture == nullptr) {
-			ErrSdl();
-		}
+		texture = SDLWrap::CreateTexture(renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, SVidWidth, SVidHeight);
 		if (SDL_RenderSetLogicalSize(renderer, SVidWidth, SVidHeight) <= -1) {
 			ErrSdl();
 		}
@@ -225,26 +221,20 @@ bool SVidPlayBegin(const char *filename, int flags)
 	std::memcpy(SVidPreviousPalette, orig_palette, sizeof(SVidPreviousPalette));
 
 	// Copy frame to buffer
-	SVidSurface = SDL_CreateRGBSurfaceWithFormatFrom(
+	SVidSurface = SDLWrap::CreateRGBSurfaceWithFormatFrom(
 	    (unsigned char *)smk_get_video(SVidSMK),
 	    SVidWidth,
 	    SVidHeight,
 	    8,
 	    SVidWidth,
 	    SDL_PIXELFORMAT_INDEX8);
-	if (SVidSurface == nullptr) {
+
+	SVidPalette = SDLWrap::AllocPalette();
+	if (SDLC_SetSurfaceColors(SVidSurface.get(), SVidPalette.get()) <= -1) {
 		ErrSdl();
 	}
 
-	SVidPalette = SDL_AllocPalette(256);
-	if (SVidPalette == nullptr) {
-		ErrSdl();
-	}
-	if (SDLC_SetSurfaceColors(SVidSurface, SVidPalette) <= -1) {
-		ErrSdl();
-	}
-
-	SVidFrameEnd = SDL_GetTicks() * 1000 + SVidFrameLength;
+	SVidFrameEnd = SDL_GetTicks() * 1000.0 + SVidFrameLength;
 	SDL_FillRect(GetOutputSurface(), nullptr, 0x000000);
 	return true;
 }
@@ -269,18 +259,18 @@ bool SVidPlayContinue()
 		}
 		memcpy(logical_palette, orig_palette, sizeof(logical_palette));
 
-		if (SDLC_SetSurfaceAndPaletteColors(SVidSurface, SVidPalette, colors, 0, 256) <= -1) {
+		if (SDLC_SetSurfaceAndPaletteColors(SVidSurface.get(), SVidPalette.get(), colors, 0, 256) <= -1) {
 			Log("{}", SDL_GetError());
 			return false;
 		}
 	}
 
-	if (SDL_GetTicks() * 1000 >= SVidFrameEnd) {
+	if (SDL_GetTicks() * 1000.0 >= SVidFrameEnd) {
 		return SVidLoadNextFrame(); // Skip video and audio if the system is to slow
 	}
 
 #ifndef NOSOUND
-	if (HaveAudio()) {
+	if (HasAudio()) {
 		const auto len = smk_get_audio_size(SVidSMK, 0);
 		const unsigned char *buf = smk_get_audio(SVidSMK, 0);
 		if (SVidAudioDepth == 16) {
@@ -291,13 +281,13 @@ bool SVidPlayContinue()
 	}
 #endif
 
-	if (SDL_GetTicks() * 1000 >= SVidFrameEnd) {
+	if (SDL_GetTicks() * 1000.0 >= SVidFrameEnd) {
 		return SVidLoadNextFrame(); // Skip video if the system is to slow
 	}
 
 #ifndef USE_SDL1
 	if (renderer != nullptr) {
-		if (SDL_BlitSurface(SVidSurface, nullptr, GetOutputSurface(), nullptr) <= -1) {
+		if (SDL_BlitSurface(SVidSurface.get(), nullptr, GetOutputSurface(), nullptr) <= -1) {
 			Log("{}", SDL_GetError());
 			return false;
 		}
@@ -329,16 +319,16 @@ bool SVidPlayContinue()
 		if (isIndexedOutputFormat
 		    || outputSurface->w == static_cast<int>(SVidWidth)
 		    || outputSurface->h == static_cast<int>(SVidHeight)) {
-			if (SDL_BlitSurface(SVidSurface, nullptr, outputSurface, &outputRect) <= -1) {
+			if (SDL_BlitSurface(SVidSurface.get(), nullptr, outputSurface, &outputRect) <= -1) {
 				ErrSdl();
 			}
 		} else {
 			// The source surface is always 8-bit, and the output surface is never 8-bit in this branch.
 			// We must convert to the output format before calling SDL_BlitScaled.
 #ifdef USE_SDL1
-			SDLSurfaceUniquePtr converted { SDL_ConvertSurface(SVidSurface, ghMainWnd->format, 0) };
+			SDLSurfaceUniquePtr converted = SDLWrap::ConvertSurface(SVidSurface.get(), ghMainWnd->format, 0);
 #else
-			SDLSurfaceUniquePtr converted { SDL_ConvertSurfaceFormat(SVidSurface, wndFormat, 0) };
+			SDLSurfaceUniquePtr converted = SDLWrap::ConvertSurfaceFormat(SVidSurface.get(), wndFormat, 0);
 #endif
 			if (SDL_BlitScaled(converted.get(), nullptr, outputSurface, &outputRect) <= -1) {
 				Log("{}", SDL_GetError());
@@ -349,9 +339,9 @@ bool SVidPlayContinue()
 
 	RenderPresent();
 
-	double now = SDL_GetTicks() * 1000;
+	double now = SDL_GetTicks() * 1000.0;
 	if (now < SVidFrameEnd) {
-		SDL_Delay((SVidFrameEnd - now) / 1000); // wait with next frame if the system is too fast
+		SDL_Delay(static_cast<Uint32>((SVidFrameEnd - now) / 1000.0)); // wait with next frame if the system is too fast
 	}
 
 	return SVidLoadNextFrame();
@@ -360,7 +350,7 @@ bool SVidPlayContinue()
 void SVidPlayEnd()
 {
 #ifndef NOSOUND
-	if (HaveAudio()) {
+	if (HasAudio()) {
 		SVidAudioStream = std::nullopt;
 		SVidAudioDecoder = nullptr;
 	}
@@ -373,20 +363,13 @@ void SVidPlayEnd()
 	SVidBuffer = nullptr;
 #endif
 
-	SDL_FreePalette(SVidPalette);
 	SVidPalette = nullptr;
-
-	SDL_FreeSurface(SVidSurface);
 	SVidSurface = nullptr;
 
 	memcpy(orig_palette, SVidPreviousPalette, sizeof(orig_palette));
 #ifndef USE_SDL1
 	if (renderer != nullptr) {
-		SDL_DestroyTexture(texture);
-		texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, gnScreenWidth, gnScreenHeight);
-		if (texture == nullptr) {
-			ErrSdl();
-		}
+		texture = SDLWrap::CreateTexture(renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, gnScreenWidth, gnScreenHeight);
 		if (renderer != nullptr && SDL_RenderSetLogicalSize(renderer, gnScreenWidth, gnScreenHeight) <= -1) {
 			ErrSdl();
 		}

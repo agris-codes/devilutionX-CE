@@ -23,9 +23,10 @@
 #include "utils/stdcompat/optional.hpp"
 
 namespace devilution {
+
 namespace {
+
 std::optional<CelSprite> sgpBackCel;
-} // namespace
 
 uint32_t sgdwProgress;
 int progress_id;
@@ -37,13 +38,13 @@ const int BarPos[3][2] = { { 53, 37 }, { 53, 421 }, { 53, 37 } };
 
 Art ArtCutsceneWidescreen;
 
-static void FreeInterface()
+void FreeInterface()
 {
 	sgpBackCel = std::nullopt;
 	ArtCutsceneWidescreen.Unload();
 }
 
-static Cutscenes PickCutscene(interface_mode uMsg)
+Cutscenes PickCutscene(interface_mode uMsg)
 {
 	switch (uMsg) {
 	case WM_DIABLOADGAME:
@@ -55,7 +56,7 @@ static Cutscenes PickCutscene(interface_mode uMsg)
 	case WM_DIABPREVLVL:
 	case WM_DIABTOWNWARP:
 	case WM_DIABTWARPUP: {
-		int lvl = plr[myplr].plrlevel;
+		int lvl = Players[MyPlayerId].plrlevel;
 		if (lvl == 1 && uMsg == WM_DIABNEXTLVL)
 			return CutTown;
 		if (lvl == 16 && uMsg == WM_DIABNEXTLVL)
@@ -79,7 +80,7 @@ static Cutscenes PickCutscene(interface_mode uMsg)
 		default:
 			return CutLevel1;
 		}
-	};
+	}
 	case WM_DIABWARPLVL:
 		return CutPortal;
 	case WM_DIABSETLVL:
@@ -94,13 +95,14 @@ static Cutscenes PickCutscene(interface_mode uMsg)
 	}
 }
 
-static void InitCutscene(interface_mode uMsg)
+void InitCutscene(interface_mode uMsg)
 {
 	const char *celPath;
 	const char *palPath;
 
 	switch (PickCutscene(uMsg)) {
 	case CutStart:
+		LoadArt("Gendata\\cutstartw.pcx", &ArtCutsceneWidescreen);
 		celPath = "Gendata\\Cutstart.cel";
 		palPath = "Gendata\\Cutstart.pal";
 		progress_id = 1;
@@ -166,11 +168,11 @@ static void InitCutscene(interface_mode uMsg)
 	sgdwProgress = 0;
 }
 
-static void DrawCutscene()
+void DrawCutscene()
 {
 	lock_buf(1);
-	const CelOutputBuffer &out = GlobalBackBuffer();
-	DrawArt(out, PANEL_X - (ArtCutsceneWidescreen.w() - PANEL_WIDTH) / 2, UI_OFFSET_Y, &ArtCutsceneWidescreen);
+	const Surface &out = GlobalBackBuffer();
+	DrawArt(out, { PANEL_X - (ArtCutsceneWidescreen.w() - PANEL_WIDTH) / 2, UI_OFFSET_Y }, &ArtCutsceneWidescreen);
 	CelDrawTo(out, { PANEL_X, 480 - 1 + UI_OFFSET_Y }, *sgpBackCel, 1);
 
 	constexpr int ProgressHeight = 22;
@@ -187,14 +189,16 @@ static void DrawCutscene()
 	RenderPresent();
 }
 
+} // namespace
+
 void interface_msg_pump()
 {
-	tagMSG Msg;
+	tagMSG msg;
 
-	while (FetchMessage(&Msg)) {
-		if (Msg.message != DVL_WM_QUIT) {
-			TranslateMessage(&Msg);
-			PushMessage(&Msg);
+	while (FetchMessage(&msg)) {
+		if (msg.message != DVL_WM_QUIT) {
+			TranslateMessage(&msg);
+			PushMessage(&msg);
 		}
 	}
 }
@@ -235,7 +239,7 @@ void ShowProgress(interface_mode uMsg)
 	sound_init();
 	IncProgress();
 
-	auto &myPlayer = plr[myplr];
+	auto &myPlayer = Players[MyPlayerId];
 
 	switch (uMsg) {
 	case WM_DIABLOADGAME:
@@ -264,9 +268,9 @@ void ShowProgress(interface_mode uMsg)
 		}
 		IncProgress();
 		FreeGameMem();
-		currlevel++;
+		setlevel = false;
+		currlevel = myPlayer.plrlevel;
 		leveltype = gnLevelTypeTbl[currlevel];
-		assert(myPlayer.plrlevel == currlevel);
 		IncProgress();
 		LoadGameLevel(false, ENTRY_MAIN);
 		IncProgress();
@@ -341,6 +345,7 @@ void ShowProgress(interface_mode uMsg)
 		}
 		IncProgress();
 		FreeGameMem();
+		setlevel = false;
 		currlevel = myPlayer.plrlevel;
 		leveltype = gnLevelTypeTbl[currlevel];
 		IncProgress();
@@ -389,7 +394,6 @@ void ShowProgress(interface_mode uMsg)
 
 	NetSendCmdLocParam1(true, CMD_PLAYER_JOINLEVEL, myPlayer.position.tile, myPlayer.plrlevel);
 	plrmsg_delay(false);
-	ResetPal();
 
 	if (gbSomebodyWonGameKludge && myPlayer.plrlevel == 16) {
 		PrepDoEnding();

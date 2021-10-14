@@ -1,135 +1,196 @@
 package org.diasurgical.devilutionx;
 
 import android.Manifest;
-import android.app.AlertDialog;
-import android.content.DialogInterface;
-import android.content.SharedPreferences;
+import android.annotation.SuppressLint;
+import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.preference.PreferenceManager;
+import android.os.Environment;
+import android.util.Log;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
+import android.view.ViewTreeObserver;
 
 import org.libsdl.app.SDLActivity;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.Locale;
 
 public class DevilutionXSDLActivity extends SDLActivity {
-	final String permission = Manifest.permission.READ_EXTERNAL_STORAGE;
-	private Handler permissionHandler;
-	private AlertDialog PermissionDialog;
-	private final String SharewareTitle = "Shareware version";
-	private SharedPreferences mPrefs;
-	final private String shouldShowInstallationGuidePref = "shouldShowInstallationGuide";
+	private String externalDir;
 
 	protected void onCreate(Bundle savedInstanceState) {
-		checkStoragePermission();
+		// windowSoftInputMode=adjustPan stopped working
+		// for fullscreen apps after Android 7.0
+		if (Build.VERSION.SDK_INT >= 25)
+			trackVisibleSpace();
+
+		externalDir = getExternalFilesDir(null).getAbsolutePath();
+
+		migrateAppData();
 
 		super.onCreate(savedInstanceState);
 	}
 
-	private boolean shouldShowInstallationGuide(boolean isDataAccessible) {
-		mPrefs = PreferenceManager.getDefaultSharedPreferences(this);
-		return mPrefs.getBoolean(shouldShowInstallationGuidePref, !isDataAccessible);
-	}
+	/**
+	 * On app launch make sure the game data is present
+	 */
+	protected void onStart() {
+		super.onStart();
 
-	private void installationGuideShown() {
-		SharedPreferences.Editor editor = mPrefs.edit();
-		editor.putBoolean(shouldShowInstallationGuidePref, false);
-		editor.apply();
-	}
-
-	private void checkStoragePermission() {
-		if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.LOLLIPOP_MR1) {
-			checkStoragePermissionLollipop();
-			return;
-		}
-
-		if (PackageManager.PERMISSION_GRANTED != checkSelfPermission(permission)) {
-			requestPermissions(new String[]{permission}, 1);
-		}
-
-		boolean dataFileFound = hasDataFile();
-		boolean shouldShowInstallationGuide = shouldShowInstallationGuide(dataFileFound && PackageManager.PERMISSION_GRANTED == checkSelfPermission(permission));
-
-		if (!shouldShowInstallationGuide && !shouldShowRequestPermissionRationale(permission)) {
-			return;
-		}
-
-		String message = "To play the full version you must grant the application read access to " + System.getenv("EXTERNAL_STORAGE") + ".";
-		if (!dataFileFound) {
-			message = "To play the full version you must place DIABDAT.MPQ from the original game in " + System.getenv("EXTERNAL_STORAGE") + " and grant the application read access.\n\nIf you don't have the original game then you can buy Diablo from GOG.com.";
-			installationGuideShown();
-		}
-
-		permissionHandler = new Handler();
-
-		PermissionDialog = new AlertDialog.Builder(this)
-				.setTitle(SharewareTitle)
-				.setPositiveButton("OK", new DialogInterface.OnClickListener() {
-					public void onClick(DialogInterface dialog, int id) {
-						permissionHandler.post(new Runnable() {
-							@Override
-							public void run() {
-								throw new RuntimeException();
-							}
-						});
-					}
-				})
-				.setMessage(message)
-				.show();
-
-		if (dataFileFound) {
-			triggerPulse(); // Start full game as soon as we have file access
-		}
-
-		try {
-			Looper.loop();
-		} catch (RuntimeException ignored) {
+		if (missingGameData()) {
+			Intent intent = new Intent(this, DataActivity.class);
+			startActivity(intent);
+			this.finish();
 		}
 	}
 
-	private void checkStoragePermissionLollipop() {
-		boolean dataFileFound = hasDataFile();
-		boolean shouldShowInstallationGuide = shouldShowInstallationGuide(dataFileFound);
-		if (!shouldShowInstallationGuide) {
-			return;
-		}
-
-		String message = "To play the full version you must place DIABDAT.MPQ from the original game in " + System.getenv("EXTERNAL_STORAGE") + ".\n\nIf you don't have the original game then you can buy Diablo from GOG.com.";
-		new AlertDialog.Builder(this)
-				.setTitle(SharewareTitle)
-				.setPositiveButton("OK", null)
-				.setMessage(message)
-				.show();
-		installationGuideShown();
-	}
-
-	private void triggerPulse() {
-		permissionHandler.postDelayed(new Runnable() {
+	private void trackVisibleSpace() {
+		this.getWindow().getDecorView().getViewTreeObserver().addOnGlobalLayoutListener(new ViewTreeObserver.OnGlobalLayoutListener() {
 			@Override
-			public void run() {
-				if (PackageManager.PERMISSION_GRANTED == checkSelfPermission(permission)) {
-					PermissionDialog.hide();
-					throw new RuntimeException();
-				}
-				triggerPulse();
+			public void onGlobalLayout() {
+				// Software keyboard may encroach on the app's visible space so
+				// force the drawing surface to fit in the visible display frame
+				Rect visibleSpace = new Rect();
+				getWindow().getDecorView().getWindowVisibleDisplayFrame(visibleSpace);
+
+				SurfaceView surface = mSurface;
+				SurfaceHolder holder = surface.getHolder();
+				holder.setFixedSize(visibleSpace.width(), visibleSpace.height());
 			}
-		}, 50);
+		});
 	}
 
-	private boolean hasDataFile() {
-		File fileLower = new File(System.getenv("EXTERNAL_STORAGE") + "/diabdat.mpq");
-		File fileUpper = new File(System.getenv("EXTERNAL_STORAGE") + "/DIABDAT.MPQ");
+	private boolean missingGameData() {
+		File fileLower = new File(externalDir + "/diabdat.mpq");
+		File fileUpper = new File(externalDir + "/DIABDAT.MPQ");
+		File spawnFile = new File(externalDir + "/spawn.mpq");
 
-		return fileUpper.exists() || fileLower.exists();
+		return !fileUpper.exists() && !fileLower.exists() && !spawnFile.exists();
+	}
+
+	private boolean copyFile(File src, File dst) {
+		try {
+			InputStream in = new FileInputStream(src);
+			try {
+				OutputStream out = new FileOutputStream(dst);
+				try {
+					// Transfer bytes from in to out
+					byte[] buf = new byte[1024];
+					int len;
+					while ((len = in.read(buf)) > 0) {
+						out.write(buf, 0, len);
+					}
+				} finally {
+					out.close();
+				}
+			} finally {
+				in.close();
+			}
+		} catch (IOException exception) {
+			Log.e("copyFile", exception.getMessage());
+			if (dst.exists()) {
+				//noinspection ResultOfMethodCallIgnored
+				dst.delete();
+			}
+			return false;
+		}
+
+		return  true;
+	}
+
+	private void migrateFile(File file) {
+		if (!file.exists() || !file.canRead()) {
+			return;
+		}
+
+		File newPath = new File(externalDir + "/" + file.getName());
+		if (file.getName().equals("spawn.mpq"))
+			newPath = new File(externalDir + "/" + file.getName() + "-temp");
+
+		if (newPath.exists()) {
+			if (file.canWrite()) {
+				//noinspection ResultOfMethodCallIgnored
+				file.delete();
+			}
+			return;
+		}
+		if (!new File(newPath.getParent()).canWrite()) {
+			return;
+		}
+		if (!file.renameTo(newPath)) {
+			if (copyFile(file, newPath) && file.canWrite()) {
+				//noinspection ResultOfMethodCallIgnored
+				file.delete();
+			}
+		}
+	}
+
+	/**
+	 * This can be removed Nov 2021 and Google will no longer permit access to the old folder from that point on
+	 */
+	@SuppressWarnings("deprecation")
+	@SuppressLint("SdCardPath")
+	private void migrateAppData() {
+		if (Build.VERSION.SDK_INT > Build.VERSION_CODES.LOLLIPOP_MR1) {
+			if (PackageManager.PERMISSION_GRANTED != checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)) {
+				return;
+			}
+		}
+
+		migrateFile(new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS) + "/diabdat.mpq"));
+		migrateFile(new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS) + "/DIABDAT.MPQ"));
+
+		migrateFile(new File("/sdcard/diabdat.mpq"));
+		migrateFile(new File("/sdcard/devilutionx/diabdat.mpq"));
+		migrateFile(new File("/sdcard/devilutionx/spawn.mpq"));
+
+		for (File internalFile : getFilesDir().listFiles()) {
+			migrateFile(internalFile);
+		}
+	}
+
+	/**
+	 * This method is called by SDL using JNI.
+	 */
+	public String getLocale()
+	{
+		return Locale.getDefault().toString();
+	}
+
+	protected String[] getArguments() {
+		if (BuildConfig.DEBUG) {
+			return new String[]{
+				"--data-dir",
+				externalDir,
+				"--config-dir",
+				externalDir,
+				"--save-dir",
+				externalDir,
+				"--verbose",
+			};
+		}
+
+		return new String[]{
+			"--data-dir",
+			externalDir,
+			"--config-dir",
+			externalDir,
+			"--save-dir",
+			externalDir
+		};
 	}
 
 	protected String[] getLibraries() {
 		return new String[]{
 				"SDL2",
-				"SDL2_ttf",
 				"devilutionx"
 		};
 	}

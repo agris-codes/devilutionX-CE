@@ -40,17 +40,23 @@ enum _music_id : uint8_t {
 };
 
 struct TSnd {
+	uint32_t start_tc;
+
 #ifndef NOSOUND
 	SoundSample DSB;
-	Uint32 start_tc;
 
 	bool isPlaying()
 	{
 		return DSB.IsPlaying();
 	}
+#else
+	bool isPlaying()
+	{
+		return false;
+	}
+#endif
 
 	~TSnd();
-#endif
 };
 
 extern bool gbSndInited;
@@ -65,6 +71,8 @@ void music_start(uint8_t nTrack);
 void sound_disable_music(bool disable);
 int sound_get_or_set_music_volume(int volume);
 int sound_get_or_set_sound_volume(int volume);
+void music_mute();
+void music_unmute();
 
 /* data */
 

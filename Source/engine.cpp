@@ -19,95 +19,9 @@
 #include "options.h"
 
 namespace devilution {
-
 namespace {
 
-template <bool SkipColorIndexZero>
-void BufferBlit(const CelOutputBuffer &src, SDL_Rect srcRect, const CelOutputBuffer &dst, Point dstPosition)
-{
-	// We do not use `SDL_BlitSurface` here because the palettes may be different objects
-	// and SDL would attempt to map them.
-
-	dst.Clip(&srcRect, &dstPosition);
-	if (srcRect.w <= 0 || srcRect.h <= 0)
-		return;
-
-	const std::uint8_t *srcBuf = src.at(srcRect.x, srcRect.y);
-	const auto srcPitch = src.pitch();
-	std::uint8_t *dstBuf = &dst[dstPosition];
-	const auto dstPitch = dst.pitch();
-
-	for (unsigned h = srcRect.h; h != 0; --h) {
-		if (SkipColorIndexZero) {
-			for (unsigned w = srcRect.w; w != 0; --w) {
-				if (*srcBuf != 0)
-					*dstBuf = *srcBuf;
-				++srcBuf, ++dstBuf;
-			}
-			srcBuf += srcPitch - srcRect.w;
-			dstBuf += dstPitch - srcRect.w;
-		} else {
-			std::memcpy(dstBuf, srcBuf, srcRect.w);
-			srcBuf += srcPitch;
-			dstBuf += dstPitch;
-		}
-	}
-}
-
-} // namespace
-
-void CelOutputBuffer::BlitFrom(const CelOutputBuffer &src, SDL_Rect srcRect, Point targetPosition) const
-{
-	BufferBlit</*SkipColorIndexZero=*/false>(src, srcRect, *this, targetPosition);
-}
-
-void CelOutputBuffer::BlitFromSkipColorIndexZero(const CelOutputBuffer &src, SDL_Rect srcRect, Point targetPosition) const
-{
-	BufferBlit</*SkipColorIndexZero=*/true>(src, srcRect, *this, targetPosition);
-}
-
-void DrawHorizontalLine(const CelOutputBuffer &out, Point from, int width, std::uint8_t colorIndex)
-{
-	if (from.y < 0 || from.y >= out.h() || from.x >= out.w() || width <= 0 || from.x + width <= 0)
-		return;
-	if (from.x < 0) {
-		width += from.x;
-		from.x = 0;
-	}
-	if (from.x + width > out.w())
-		width = out.w() - from.x;
-	return UnsafeDrawHorizontalLine(out, from, width, colorIndex);
-}
-
-void UnsafeDrawHorizontalLine(const CelOutputBuffer &out, Point from, int width, std::uint8_t colorIndex)
-{
-	std::memset(&out[from], colorIndex, width);
-}
-
-void DrawVerticalLine(const CelOutputBuffer &out, Point from, int height, std::uint8_t colorIndex)
-{
-	if (from.x < 0 || from.x >= out.w() || from.y >= out.h() || height <= 0 || from.y + height <= 0)
-		return;
-	if (from.y < 0) {
-		height += from.y;
-		from.y = 0;
-	}
-	if (from.y + height > out.h())
-		height = (from.y + height) - out.h();
-	return UnsafeDrawVerticalLine(out, from, height, colorIndex);
-}
-
-void UnsafeDrawVerticalLine(const CelOutputBuffer &out, Point from, int height, std::uint8_t colorIndex)
-{
-	auto *dst = &out[from];
-	const auto pitch = out.pitch();
-	while (height-- > 0) {
-		*dst = colorIndex;
-		dst += pitch;
-	}
-}
-
-static void DrawHalfTransparentBlendedRectTo(const CelOutputBuffer &out, int sx, int sy, int width, int height)
+void DrawHalfTransparentBlendedRectTo(const Surface &out, int sx, int sy, int width, int height)
 {
 	BYTE *pix = out.at(sx, sy);
 
@@ -120,7 +34,7 @@ static void DrawHalfTransparentBlendedRectTo(const CelOutputBuffer &out, int sx,
 	}
 }
 
-static void DrawHalfTransparentStippledRectTo(const CelOutputBuffer &out, int sx, int sy, int width, int height)
+void DrawHalfTransparentStippledRectTo(const Surface &out, int sx, int sy, int width, int height)
 {
 	BYTE *pix = out.at(sx, sy);
 
@@ -133,8 +47,50 @@ static void DrawHalfTransparentStippledRectTo(const CelOutputBuffer &out, int sx
 		pix += out.pitch() - width;
 	}
 }
+} // namespace
 
-void DrawHalfTransparentRectTo(const CelOutputBuffer &out, int sx, int sy, int width, int height)
+void DrawHorizontalLine(const Surface &out, Point from, int width, std::uint8_t colorIndex)
+{
+	if (from.y < 0 || from.y >= out.h() || from.x >= out.w() || width <= 0 || from.x + width <= 0)
+		return;
+	if (from.x < 0) {
+		width += from.x;
+		from.x = 0;
+	}
+	if (from.x + width > out.w())
+		width = out.w() - from.x;
+	return UnsafeDrawHorizontalLine(out, from, width, colorIndex);
+}
+
+void UnsafeDrawHorizontalLine(const Surface &out, Point from, int width, std::uint8_t colorIndex)
+{
+	std::memset(&out[from], colorIndex, width);
+}
+
+void DrawVerticalLine(const Surface &out, Point from, int height, std::uint8_t colorIndex)
+{
+	if (from.x < 0 || from.x >= out.w() || from.y >= out.h() || height <= 0 || from.y + height <= 0)
+		return;
+	if (from.y < 0) {
+		height += from.y;
+		from.y = 0;
+	}
+	if (from.y + height > out.h())
+		height = (from.y + height) - out.h();
+	return UnsafeDrawVerticalLine(out, from, height, colorIndex);
+}
+
+void UnsafeDrawVerticalLine(const Surface &out, Point from, int height, std::uint8_t colorIndex)
+{
+	auto *dst = &out[from];
+	const auto pitch = out.pitch();
+	while (height-- > 0) {
+		*dst = colorIndex;
+		dst += pitch;
+	}
+}
+
+void DrawHalfTransparentRectTo(const Surface &out, int sx, int sy, int width, int height)
 {
 	if (sx + width < 0)
 		return;
@@ -182,40 +138,40 @@ void DrawHalfTransparentRectTo(const CelOutputBuffer &out, int sx, int sy, int w
  * @param x2 the x coordinate of p2
  * @param y2 the y coordinate of p2
  * @return the direction of the p1->p2 vector
-*/
+ */
 Direction GetDirection(Point start, Point destination)
 {
-	Direction md = DIR_S;
+	Direction md;
 
 	int mx = destination.x - start.x;
 	int my = destination.y - start.y;
 	if (mx >= 0) {
 		if (my >= 0) {
 			if (5 * mx <= (my * 2)) // mx/my <= 0.4, approximation of tan(22.5)
-				return DIR_SW;
-			md = DIR_S;
+				return Direction::SouthWest;
+			md = Direction::South;
 		} else {
 			my = -my;
 			if (5 * mx <= (my * 2))
-				return DIR_NE;
-			md = DIR_E;
+				return Direction::NorthEast;
+			md = Direction::East;
 		}
 		if (5 * my <= (mx * 2)) // my/mx <= 0.4
-			md = DIR_SE;
+			md = Direction::SouthEast;
 	} else {
 		mx = -mx;
 		if (my >= 0) {
 			if (5 * mx <= (my * 2))
-				return DIR_SW;
-			md = DIR_W;
+				return Direction::SouthWest;
+			md = Direction::West;
 		} else {
 			my = -my;
 			if (5 * mx <= (my * 2))
-				return DIR_NE;
-			md = DIR_N;
+				return Direction::NorthEast;
+			md = Direction::North;
 		}
 		if (5 * my <= (mx * 2))
-			md = DIR_NW;
+			md = Direction::NorthWest;
 	}
 	return md;
 }
@@ -223,21 +179,6 @@ Direction GetDirection(Point start, Point destination)
 int CalculateWidth2(int width)
 {
 	return (width - 64) / 2;
-}
-
-/**
- * @brief Fade to black and play a video
- * @param pszMovie file path of movie
- */
-void PlayInGameMovie(const char *pszMovie)
-{
-	PaletteFadeOut(8);
-	play_movie(pszMovie, false);
-	ClearScreenBuffer();
-	force_redraw = 255;
-	scrollrt_draw_game_screen();
-	PaletteFadeIn(8);
-	force_redraw = 255;
 }
 
 } // namespace devilution

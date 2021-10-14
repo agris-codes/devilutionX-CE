@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include <SDL_version.h>
+
 #include "pack.h"
 
 namespace devilution {
@@ -9,13 +11,21 @@ namespace devilution {
 struct DiabloOptions {
 	/** @brief Play game intro video on startup. */
 	bool bIntro;
+	/** @brief Remembers what singleplayer hero/save was last used. */
+	std::uint32_t lastSinglePlayerHero;
+	/** @brief Remembers what multiplayer hero/save was last used. */
+	std::uint32_t lastMultiplayerHero;
 };
 
 struct HellfireOptions {
 	/** @brief Play game intro video on startup. */
 	bool bIntro;
 	/** @brief Cornerstone of the world item. */
-	char szItem[sizeof(PkItemStruct) * 2 + 1];
+	char szItem[sizeof(ItemPack) * 2 + 1];
+	/** @brief Remembers what singleplayer hero/save was last used. */
+	std::uint32_t lastSinglePlayerHero;
+	/** @brief Remembers what multiplayer hero/save was last used. */
+	std::uint32_t lastMultiplayerHero;
 };
 
 struct AudioOptions {
@@ -61,8 +71,14 @@ struct GraphicsOptions {
 	int nGammaCorrection;
 	/** @brief Enable color cycling animations. */
 	bool bColorCycling;
+#if SDL_VERSION_ATLEAST(2, 0, 0)
 	/** @brief Use a hardware cursor (SDL2 only). */
 	bool bHardwareCursor;
+	/** @brief Use a hardware cursor for items. */
+	bool bHardwareCursorForItems;
+	/** @brief Maximum width / height for the hardware cursor. Larger cursors fall back to software. */
+	int nHardwareCursorMaxSize;
+#endif
 	/** @brief Enable FPS Limit. */
 	bool bFPSLimit;
 	/** @brief Show FPS, even without the -f command line flag. */
@@ -158,13 +174,20 @@ struct Options {
 	LanguageOptions Language;
 };
 
-bool getIniValue(const char *sectionName, const char *keyName, char *string, int stringSize, const char *defaultString = "");
-void setIniValue(const char *sectionName, const char *keyName, const char *value, int len = 0);
+bool GetIniValue(const char *sectionName, const char *keyName, char *string, int stringSize, const char *defaultString = "");
+void SetIniValue(const char *sectionName, const char *keyName, const char *value, int len = 0);
 
 extern Options sgOptions;
 extern bool sbWasOptionsLoaded;
 
+/**
+ * @brief Save game configurations to ini file
+ */
 void SaveOptions();
+
+/**
+ * @brief Load game configurations from ini file
+ */
 void LoadOptions();
 
 } // namespace devilution
